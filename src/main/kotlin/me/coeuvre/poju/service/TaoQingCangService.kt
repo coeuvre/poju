@@ -6,8 +6,8 @@ import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toFlux
 import java.awt.Color
 
 data class ExportActivityItemsRequest(
@@ -43,7 +43,7 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
 
                     val titleStyle = workbook.createCellStyle()
                     val font = workbook.createFont()
-                    font.setColor(XSSFColor(Color(255, 255, 255)));
+                    font.setColor(XSSFColor(Color(255, 255, 255)))
                     titleStyle.setFont(font)
                     titleStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
                     titleStyle.setFillForegroundColor(XSSFColor(Color(0, 0, 0)))
@@ -140,7 +140,7 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
             )
         }
 
-        return Flux.fromIterable(queryItemsRequestList)
+        return queryItemsRequestList.toFlux()
                 .flatMap { queryItemsRequest ->
                     println("Fetching page ${queryItemsRequest.currentPage}/$pageCount")
                     taoQingCangClient.queryItems(queryItemsRequest)
@@ -156,7 +156,7 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
     }
 
     private fun getAllItemApplyFormDetails(request: ExportActivityItemsRequest, itemList: List<Item>): Mono<List<GetItemApplyFormDetailResult>> {
-        return Flux.fromIterable(itemList.withIndex())
+        return itemList.withIndex().toFlux()
                 .flatMap { (index, item) ->
                     println("Fetching item ${item.juId} (${index + 1}/${itemList.count()})")
                     taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(

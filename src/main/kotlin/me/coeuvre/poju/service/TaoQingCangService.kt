@@ -10,6 +10,7 @@ import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
 import java.awt.Color
@@ -68,8 +69,11 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
 
     fun exportActivityItems(request: ExportActivityItemsRequest): Mono<XSSFWorkbook> {
         return queryItemsTotalItem(request)
-                .flatMap { totalItem -> queryAllItems(request, totalItem) }
-                .flatMap { itemList -> getAllItemApplyFormDetails(request, itemList) }
+                .flatMapMany { totalItem ->
+                    queryAllItems(request, totalItem)
+                            .flatMapSequential { (index, item) -> getItemApplyFormDetail(request, item, index, totalItem) }
+                }
+                .collectList()
                 .map { exportItemApplyFormDetailsToWorkbook(it) }
     }
 
@@ -88,7 +92,7 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
         return taoQingCangClient.queryItems(queryItemsRequest).map { it.totalItem }
     }
 
-    private fun queryAllItems(request: ExportActivityItemsRequest, totalItem: Int): Mono<List<Item>> {
+    private fun queryAllItems(request: ExportActivityItemsRequest, totalItem: Int): Flux<Pair<Int, Item>> {
         val pageSize = 20
         val pageCount = Math.ceil(totalItem * 1.0 / pageSize).toInt()
         println("Activity(${request.activityEnterId}) has $totalItem items ($pageCount pages)")
@@ -107,42 +111,38 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
         }
 
         return queryItemsRequestList.toFlux()
-                .flatMap { queryItemsRequest ->
+                .flatMapSequential { queryItemsRequest ->
                     println("Fetching page ${queryItemsRequest.currentPage}/$pageCount")
                     taoQingCangClient.queryItems(queryItemsRequest)
-                            .map { response ->
+                            .flatMapMany { response ->
                                 if (response == null || !response.success) {
                                     throw IllegalStateException(response?.message)
                                 }
-                                Pair(queryItemsRequest, response.itemList)
+                                response.itemList.withIndex().map { (index, item) ->
+                                    Pair(index + (queryItemsRequest.currentPage - 1) * queryItemsRequest.pageSize, item)
+                                }.toFlux()
                             }
                 }
-                .collectSortedList { a, b -> a.first.currentPage.compareTo(b.first.currentPage) }
-                .map { it.map { it.second }.flatten() }
     }
 
-    private fun getAllItemApplyFormDetails(request: ExportActivityItemsRequest, itemList: List<Item>): Mono<List<GetItemApplyFormDetailResult>> {
-        return itemList.withIndex().toFlux()
-                .flatMap { (index, item) ->
-                    println("Fetching item ${item.juId} (${index + 1}/${itemList.count()})")
-                    taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
-                            tbToken = request.tbToken,
-                            cookie2 = request.cookie2,
-                            sg = request.sg,
-                            juId = item.juId
-                    )).map { itemApplyFormDetail ->
-                        Pair(index, GetItemApplyFormDetailResult(itemApplyFormDetail = itemApplyFormDetail, isSuccess = true, errorMessage = null))
-                    }.onErrorResume { e ->
-                        println(e.message)
-                        Mono.just(Pair(index, GetItemApplyFormDetailResult(
-                                itemApplyFormDetail = ItemApplyFormDetail.empty.copy(juId = item.juId, itemId = item.itemId, shortTitle = item.itemName),
-                                isSuccess = false,
-                                errorMessage = e.message
-                        )))
-                    }
-                }
-                .collectSortedList { a, b -> a.first.compareTo(b.first) }
-                .map { it.map { it.second } }
+    private fun getItemApplyFormDetail(request: ExportActivityItemsRequest, item: Item, index: Int, count: Int): Mono<GetItemApplyFormDetailResult> {
+        println("Fetching item ${item.juId} (${index + 1}/${count})")
+
+        return taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
+                tbToken = request.tbToken,
+                cookie2 = request.cookie2,
+                sg = request.sg,
+                juId = item.juId
+        )).map { itemApplyFormDetail ->
+            GetItemApplyFormDetailResult(itemApplyFormDetail = itemApplyFormDetail, isSuccess = true, errorMessage = null)
+        }.onErrorResume { e ->
+            println(e.message)
+            Mono.just(GetItemApplyFormDetailResult(
+                    itemApplyFormDetail = ItemApplyFormDetail.empty.copy(juId = item.juId, itemId = item.itemId, shortTitle = item.itemName),
+                    isSuccess = false,
+                    errorMessage = e.message
+            ))
+        }
     }
 
     private fun exportItemApplyFormDetailsToWorkbook(getItemApplyFormDetailResult: List<GetItemApplyFormDetailResult>): XSSFWorkbook {

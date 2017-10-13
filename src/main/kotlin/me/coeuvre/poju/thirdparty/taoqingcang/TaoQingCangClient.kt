@@ -1,10 +1,11 @@
 package me.coeuvre.poju.thirdparty.taoqingcang
 
-import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.jsoup.Jsoup
-import org.springframework.http.MediaType
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.core.io.Resource
+import org.springframework.http.HttpEntity
 import org.springframework.stereotype.Service
 import org.springframework.util.LinkedMultiValueMap
 import org.springframework.util.MultiValueMap
@@ -88,10 +89,35 @@ data class ItemApplyFormDetail(
     }
 }
 
-class SubmitItemApplyFormResponse(
+data class SubmitItemApplyFormResponse(
         val success: Boolean,
         val errorType: String?,
         val errorInfo: String?
+)
+
+data class UploadItemMainPicRequest(
+        val tbToken: String,
+        val cookie2: String,
+        val sg: String,
+        val platformId: Long,
+        val itemId: Long,
+        val pic: HttpEntity<Resource>
+)
+
+data class UploadItemTaobaoAppMaterialRequest(
+        val tbToken: String,
+        val cookie2: String,
+        val sg: String,
+        val platformId: Long,
+        val itemId: Long,
+        val activityEnterId: Long,
+        val pic: HttpEntity<Resource>
+)
+
+data class UploadImageResponse(
+        val status: Int,
+        val message: String?,
+        val url: String?
 )
 
 /**
@@ -100,85 +126,85 @@ class SubmitItemApplyFormResponse(
  * 登录信息由 cookie: _tb_token_, cookie2, sg 决定
  */
 @Service
-class TaoQingCangClient {
+class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
 
-    fun queryItems(request: QueryItemsRequest): Mono<QueryItemsResponse> = WebClient.create()
-            .get()
-            .uri("https://tqcfreeway.ju.taobao.com/tg/json/queryItems.htm?" +
-                    "_tb_token_=${request.tbToken}&" +
-                    "_input_charset=UTF-8&" +
-                    "activityEnterId=${request.activityEnterId}&" +
-                    "itemStatusCode=${request.itemStatusCode}&" +
-                    "actionStatus=${request.actionStatus}&" +
-                    "currentPage=${request.currentPage}&" +
-                    "pageSize=${request.pageSize}")
-            .cookie("_tb_token_", request.tbToken)
-            .cookie("cookie2", request.cookie2)
-            .cookie("sg", request.sg)
-            .retrieve()
-            .bodyToMono(String::class.java)
-            .map { body ->
-                val queryItemsResponse = jacksonObjectMapper()
-                        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                        .readValue(body, QueryItemsResponse::class.java)
-
-                if (!queryItemsResponse.success) {
-                    throw IllegalStateException(queryItemsResponse.message)
+    fun queryItems(request: QueryItemsRequest): Mono<QueryItemsResponse> {
+        return WebClient.create()
+                .get()
+                .uri("https://tqcfreeway.ju.taobao.com/tg/json/queryItems.htm?" +
+                        "_tb_token_=${request.tbToken}&" +
+                        "_input_charset=UTF-8&" +
+                        "activityEnterId=${request.activityEnterId}&" +
+                        "itemStatusCode=${request.itemStatusCode}&" +
+                        "actionStatus=${request.actionStatus}&" +
+                        "currentPage=${request.currentPage}&" +
+                        "pageSize=${request.pageSize}")
+                .cookie("_tb_token_", request.tbToken)
+                .cookie("cookie2", request.cookie2)
+                .cookie("sg", request.sg)
+                .retrieve()
+                .bodyToMono(String::class.java)
+                .map { body ->
+                    val queryItemsResponse = objectMapper.readValue(body, QueryItemsResponse::class.java)
+                    if (!queryItemsResponse.success) {
+                        throw IllegalStateException(queryItemsResponse.message)
+                    }
+                    queryItemsResponse
                 }
+    }
 
-                queryItemsResponse
-            }
+    fun getItemApplyFormDetail(request: GetItemApplyFormDetailRequest): Mono<ItemApplyFormDetail> {
+        return WebClient.create()
+                .get()
+                .uri("https://tqcfreeway.ju.taobao.com/tg/itemApplyFormDetail.htm?juId=${request.juId}")
+                .cookie("_tb_token_", request.tbToken)
+                .cookie("cookie2", request.cookie2)
+                .cookie("sg", request.sg)
+                .exchange()
+                .flatMap { response ->
+                    if (response.statusCode().value() != 200) {
+                        throw IllegalArgumentException("Invalid item ${request.juId}")
+                    }
 
-    fun getItemApplyFormDetail(request: GetItemApplyFormDetailRequest): Mono<ItemApplyFormDetail> = WebClient.create()
-            .get()
-            .uri("https://tqcfreeway.ju.taobao.com/tg/itemApplyFormDetail.htm?juId=${request.juId}")
-            .cookie("_tb_token_", request.tbToken)
-            .cookie("cookie2", request.cookie2)
-            .cookie("sg", request.sg)
-            .exchange()
-            .flatMap { response ->
-                if (response.statusCode().value() != 200) {
-                    throw IllegalArgumentException("Invalid item ${request.juId}")
+                    response.bodyToMono(String::class.java).map { body ->
+                        val doc = Jsoup.parse(body)
+                        val form = doc.select("#J_DetailForm")
+
+                        ItemApplyFormDetail(
+                                juId = form.select("#juId").`val`().toLong(),
+                                itemId = form.select("#itemId").`val`().toLong(),
+                                platformId = form.select("#platformId").`val`().toLong(),
+                                activityEnterId = form.select("#activityEnterId").`val`().toLong(),
+                                activityId = form.select("#activityId").`val`().toLong(),
+                                skuType = form.select("""input[name="skuType"][checked]""").`val`(),
+                                activityPrice = form.select("#activityPrice").`val`(),
+                                priceType = form.select("""input[name="priceType"][checked]""").`val`(),
+                                inventoryType = form.select("""input[name="inventoryType"][checked]""").`val`(),
+                                itemCount = form.select("#itemCount").`val`(),
+                                shortTitle = form.select("#shortTitle").`val`(),
+                                itemMainPic = form.select("#itemMainPicval").`val`(),
+                                itemTaobaoAppMaterial = form.select("#itemTaobaoAppMaterialval").`val`(),
+                                itemTqcNewTag = form.select("""input[name="itemTqcNewTag"][checked]""").`val`(),
+                                itemHiddenSearchTag = form.select("#itemHiddenSearchTag").`val`(),
+                                payPostage = form.select("#payPostage").`val`(),
+                                limitNum = form.select("#limitNum").`val`(),
+                                itemBrandName = form.select("#itemBrandName").`val`()
+                        )
+                    }
                 }
+    }
 
-                response.bodyToMono(String::class.java).map { body ->
-                    val doc = Jsoup.parse(body)
-                    val form = doc.select("#J_DetailForm")
-
-                    ItemApplyFormDetail(
-                            juId = form.select("#juId").`val`().toLong(),
-                            itemId = form.select("#itemId").`val`().toLong(),
-                            platformId = form.select("#platformId").`val`().toLong(),
-                            activityEnterId = form.select("#activityEnterId").`val`().toLong(),
-                            activityId = form.select("#activityId").`val`().toLong(),
-                            skuType = form.select("""input[name="skuType"][checked]""").`val`(),
-                            activityPrice = form.select("#activityPrice").`val`(),
-                            priceType = form.select("""input[name="priceType"][checked]""").`val`(),
-                            inventoryType = form.select("""input[name="inventoryType"][checked]""").`val`(),
-                            itemCount = form.select("#itemCount").`val`(),
-                            shortTitle = form.select("#shortTitle").`val`(),
-                            itemMainPic = form.select("#itemMainPicval").`val`(),
-                            itemTaobaoAppMaterial = form.select("#itemTaobaoAppMaterialval").`val`(),
-                            itemTqcNewTag = form.select("""input[name="itemTqcNewTag"][checked]""").`val`(),
-                            itemHiddenSearchTag = form.select("#itemHiddenSearchTag").`val`(),
-                            payPostage = form.select("#payPostage").`val`(),
-                            limitNum = form.select("#limitNum").`val`(),
-                            itemBrandName = form.select("#itemBrandName").`val`()
-                    )
-                }
-            }
-
-    fun submitItemApplyForm(tbToken: String, cookie2: String, sg: String, itemApplyFormDetail: ItemApplyFormDetail): Mono<SubmitItemApplyFormResponse> {
-        val params = jacksonObjectMapper().convertValue<Map<String, String>>(itemApplyFormDetail).filter { it.value.isNotBlank() }
+    fun submitItemApplyForm(tbToken: String, cookie2: String, sg: String, itemApplyFormDetail: ItemApplyFormDetail): Mono<Void> {
+        val params = objectMapper.convertValue<Map<String, String>>(itemApplyFormDetail).filter { it.value.isNotBlank() }
         val additionParams = LinkedMultiValueMap<String, String>()
         additionParams.add("action", "/tg/ItemPostAction")
         additionParams.add("event_submit_do_update", "true")
         additionParams.add("itemApplyResult", "//tqcfreeway.ju.taobao.com/tg/itemApplyResult.htm")
         additionParams.add("_tb_token_", tbToken)
 
-        val requestBody = LinkedMultiValueMap<String, String>()
-        params.forEach { (key, value) -> requestBody.add(key, value) }
-        requestBody.addAll(additionParams)
+        val multipartData = LinkedMultiValueMap<String, String>()
+        params.forEach { (key, value) -> multipartData.add(key, value) }
+        multipartData.addAll(additionParams)
 
         return WebClient.create()
                 .post()
@@ -186,14 +212,48 @@ class TaoQingCangClient {
                 .cookie("_tb_token_", tbToken)
                 .cookie("cookie2", cookie2)
                 .cookie("sg", sg)
-                .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(BodyInserters.fromMultipartData(requestBody))
+                .body(BodyInserters.fromMultipartData(multipartData))
                 .retrieve()
                 .bodyToMono(String::class.java)
                 .map { body ->
-                    jacksonObjectMapper()
-                            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                            .readValue(body, SubmitItemApplyFormResponse::class.java)
+                    val response = objectMapper.readValue(body, SubmitItemApplyFormResponse::class.java)
+                    if (!response.success) {
+                        throw IllegalStateException(response.errorInfo)
+                    }
+
+                    null
                 }
     }
+
+    fun uploadItemMainPic(request: UploadItemMainPicRequest): Mono<String> {
+        val multipartData = LinkedMultiValueMap<String, Any>()
+        multipartData.add("wise", "mainPic_${request.platformId}_${request.itemId}")
+        multipartData.add("itemPicFile", request.pic)
+        return uploadImage(request.tbToken, request.cookie2, request.sg, multipartData)
+    }
+
+    fun uploadItemTaobaoAppMaterial(request: UploadItemTaobaoAppMaterialRequest): Mono<String> {
+        val multipartData = LinkedMultiValueMap<String, Any>()
+        multipartData.add("wise", "hyalineImgPic_${request.platformId}_${request.itemId}_${request.activityEnterId}_0_0_0")
+        multipartData.add("itemPicFile", request.pic)
+        return uploadImage(request.tbToken, request.cookie2, request.sg, multipartData)
+    }
+
+    private fun uploadImage(tbToken: String, cookie2: String, sg: String, multipartData: MultiValueMap<String, *>): Mono<String> =
+            WebClient.create()
+                    .post()
+                    .uri("https://tqcfreeway.ju.taobao.com/tg/json/uploadImageLocal.do?_input_charset=utf-8")
+                    .cookie("_tb_token_", tbToken)
+                    .cookie("cookie2", cookie2)
+                    .cookie("sg", sg)
+                    .body(BodyInserters.fromMultipartData(multipartData))
+                    .retrieve()
+                    .bodyToMono(String::class.java)
+                    .map { body ->
+                        val response = objectMapper.readValue(body, UploadImageResponse::class.java)
+                        if (response.status != 1) {
+                            throw IllegalStateException(response.message)
+                        }
+                        response.url!!
+                    }
 }

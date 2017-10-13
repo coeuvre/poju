@@ -214,18 +214,22 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
                 .flatMap { (index, itemApplyFormDetail) ->
                     println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
                     taoQingCangClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, itemApplyFormDetail)
-                            .map { response ->
-                                Triple(index, itemApplyFormDetail, response)
+                            .map {
+                                Triple<Int, ItemApplyFormDetail, String?>(index, itemApplyFormDetail, null)
+                            }
+                            .onErrorResume { e ->
+                                println(e.message)
+                                Mono.just(Triple(index, itemApplyFormDetail, e.message))
                             }
                 }
                 .collectSortedList { a, b -> a.first.compareTo(b.first) }
                 .map { it.map { Pair(it.second, it.third) } }
                 .map { rows ->
-                    val results = rows.filter { !it.second.success }.map { (itemApplyFormDetail, submitItemApplyFormResponse) ->
+                    val results = rows.filter { it.second != null }.map { (itemApplyFormDetail, errorMessage) ->
                         GetItemApplyFormDetailResult(
                                 itemApplyFormDetail = itemApplyFormDetail,
-                                isSuccess = submitItemApplyFormResponse.success,
-                                errorMessage = submitItemApplyFormResponse.errorInfo
+                                isSuccess = false,
+                                errorMessage = errorMessage
                         )
                     }
 

@@ -3,18 +3,18 @@ package me.coeuvre.poju.rest
 import me.coeuvre.poju.service.ExportActivityItemsRequest
 import me.coeuvre.poju.service.TaoQingCangService
 import me.coeuvre.poju.service.UpdateActivityItemsRequest
-import me.coeuvre.poju.thirdparty.taoqingcang.UploadImageResponse
+import me.coeuvre.poju.thirdparty.taoqingcang.NamedByteArrayResource
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.core.io.ByteArrayResource
-import org.springframework.core.io.InputStreamResource
 import org.springframework.http.HttpEntity
 import org.springframework.http.ResponseEntity
 import org.springframework.http.codec.multipart.Part
 import org.springframework.web.bind.annotation.*
 import reactor.core.publisher.Mono
 import java.io.*
+import java.util.zip.ZipInputStream
 
 @RestController
 class TaoQingCangController(@Autowired val service: TaoQingCangService) {
@@ -58,21 +58,52 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
     @PostMapping("/api/tqc/UpdateActivityItems")
     fun updateActivityItems(@ModelAttribute modelMono: Mono<UpdateActivityItemsModel>): Mono<ResponseEntity<ByteArray>> {
         return modelMono.flatMap { model ->
-            model.workbook.getContentAsInputStream().flatMap { inputStream ->
-                val workbook = XSSFWorkbook(inputStream)
-                service.updateActivityItems(UpdateActivityItemsRequest(
-                        tbToken = model.tbToken,
-                        cookie2 = model.cookie2,
-                        sg = model.sg,
-                        workbook = workbook
-                )).map { errorWorkbook: XSSFWorkbook? ->
-                    if (errorWorkbook != null) {
-                        sendExcel(errorWorkbook, "TQC_ErrorItems")
-                    } else {
-                        ResponseEntity.ok().body(ByteArray(0))
+            model.workbook.getContentAsInputStream().map { XSSFWorkbook(it) }
+                    .flatMap { workbook ->
+                        if (model.picZip != null) {
+                            model.picZip.getContentAsInputStream().map { inputStream ->
+                                val zipInputStream = ZipInputStream(inputStream)
+                                val buffer = ByteArray(4096)
+                                val byteArrayMap = mutableMapOf<String, ByteArray>()
+
+                                // Iterate over Zip entries
+                                while (true) {
+                                    val zipEntry = zipInputStream.nextEntry ?: break
+                                    val byteArrayOutputStream = ByteArrayOutputStream()
+
+                                    // Read Zip entry content into ByteArray
+                                    while (true) {
+                                        val len = zipInputStream.read(buffer)
+                                        if (len <= 0) { break; }
+                                        byteArrayOutputStream.write(buffer, 0, len)
+                                    }
+                                    byteArrayOutputStream.close()
+
+                                    byteArrayMap.put(zipEntry.name, byteArrayOutputStream.toByteArray())
+                                }
+                                zipInputStream.closeEntry()
+                                zipInputStream.close()
+                                Pair(workbook, byteArrayMap)
+                            }
+                        } else {
+                            Mono.just(Pair(workbook, null))
+                        }
                     }
-                }
-            }
+                    .flatMap { (workbook, zipContentMap) ->
+                        service.updateActivityItems(UpdateActivityItemsRequest(
+                                tbToken = model.tbToken,
+                                cookie2 = model.cookie2,
+                                sg = model.sg,
+                                workbook = workbook,
+                                zipContentMap = zipContentMap
+                        )).map { errorWorkbook: XSSFWorkbook? ->
+                            if (errorWorkbook != null) {
+                                sendExcel(errorWorkbook, "TQC_ErrorItems")
+                            } else {
+                                ResponseEntity.ok().body(ByteArray(0))
+                            }
+                        }
+                    }
         }
     }
 
@@ -101,8 +132,4 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
                 }
             }
 
-}
-
-class NamedByteArrayResource(private val filename: String, byteArray: ByteArray) : ByteArrayResource(byteArray) {
-    override fun getFilename(): String = filename
 }

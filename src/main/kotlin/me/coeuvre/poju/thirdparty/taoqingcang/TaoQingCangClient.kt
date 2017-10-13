@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
 import org.jsoup.Jsoup
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.core.io.Resource
 import org.springframework.http.HttpEntity
 import org.springframework.stereotype.Service
@@ -95,13 +96,17 @@ data class SubmitItemApplyFormResponse(
         val errorInfo: String?
 )
 
+class NamedByteArrayResource(private val filename: String, byteArray: ByteArray) : ByteArrayResource(byteArray) {
+    override fun getFilename(): String = filename
+}
+
 data class UploadItemMainPicRequest(
         val tbToken: String,
         val cookie2: String,
         val sg: String,
         val platformId: Long,
         val itemId: Long,
-        val pic: HttpEntity<Resource>
+        val pic: HttpEntity<NamedByteArrayResource>
 )
 
 data class UploadItemTaobaoAppMaterialRequest(
@@ -220,9 +225,8 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
                     if (!response.success) {
                         throw IllegalStateException(response.errorInfo)
                     }
-
-                    null
                 }
+                .then()
     }
 
     fun uploadItemMainPic(request: UploadItemMainPicRequest): Mono<String> {

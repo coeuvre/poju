@@ -213,18 +213,18 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
         }
 
         return itemApplyFormDetailList.withIndex().toFlux()
-                .flatMap { (index, itemApplyFormDetail) ->
+                .flatMapSequential { (index, itemApplyFormDetail) ->
                     println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
                     updateActivityItem(request, itemApplyFormDetail)
-                            .map { Triple<Int, ItemApplyFormDetail, String?>(index, itemApplyFormDetail, null) }
+                            .map { Pair<ItemApplyFormDetail, String?>(itemApplyFormDetail, null) }
                             .onErrorResume { e ->
                                 println(e.message)
-                                Mono.just(Triple(index, itemApplyFormDetail, e.message))
+                                Mono.just(Pair(itemApplyFormDetail, e.message))
                             }
                 }
-                .collectSortedList { a, b -> a.first.compareTo(b.first) }
+                .collectList()
                 .flatMap { rows ->
-                    val results = rows.filter { it.third != null }.map { (_, itemApplyFormDetail, errorMessage) ->
+                    val results = rows.filter { it.second != null }.map { (itemApplyFormDetail, errorMessage) ->
                         GetItemApplyFormDetailResult(
                                 itemApplyFormDetail = itemApplyFormDetail,
                                 isSuccess = false,
@@ -263,22 +263,26 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
 
     private fun uploadItemMainPicIfNeed(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<ItemApplyFormDetail> {
         return if (itemApplyFormDetail.itemMainPic.startsWith(ZIP_PROTOCOL)) {
-            val filename = itemApplyFormDetail.itemMainPic.substring(ZIP_PROTOCOL.length)
-            val fileContent = getFileFromRequest(request, filename)
-            println("Upload ${filename} for itemMainPic (${itemApplyFormDetail.juId})")
+            Mono.create<UploadItemMainPicRequest> { sink ->
+                val filename = itemApplyFormDetail.itemMainPic.substring(ZIP_PROTOCOL.length)
+                val fileContent = getFileFromRequest(request, filename)
+                println("Upload ${filename} for itemMainPic (${itemApplyFormDetail.juId})")
 
-            val headers = HttpHeaders()
-            headers.contentType = guessContentType(filename)
+                val headers = HttpHeaders()
+                headers.contentType = guessContentType(filename)
 
-            taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
-                    tbToken = request.tbToken,
-                    cookie2 = request.cookie2,
-                    sg = request.sg,
-                    platformId = itemApplyFormDetail.platformId,
-                    itemId = itemApplyFormDetail.itemId,
-                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
-            )).map { url ->
-                itemApplyFormDetail.copy(itemMainPic = url)
+                sink.success(UploadItemMainPicRequest(
+                        tbToken = request.tbToken,
+                        cookie2 = request.cookie2,
+                        sg = request.sg,
+                        platformId = itemApplyFormDetail.platformId,
+                        itemId = itemApplyFormDetail.itemId,
+                        pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                ))
+            }.flatMap {
+                taoQingCangClient.uploadItemMainPic(it)
+            }.map {
+                itemApplyFormDetail.copy(itemMainPic = it)
             }
         } else {
             Mono.just(itemApplyFormDetail)
@@ -286,24 +290,29 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
     }
 
     private fun uploadItemTaobaoMaterialIfNeed(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<ItemApplyFormDetail> {
-        return if (itemApplyFormDetail.itemMainPic.startsWith(ZIP_PROTOCOL)) {
-            val filename = itemApplyFormDetail.itemMainPic.substring(ZIP_PROTOCOL.length)
-            val fileContent = getFileFromRequest(request, filename)
-            println("Upload ${filename} for itemTaobaoMaterial (${itemApplyFormDetail.juId})")
 
-            val headers = HttpHeaders()
-            headers.contentType = guessContentType(filename)
+        return if (itemApplyFormDetail.itemTaobaoAppMaterial.startsWith(ZIP_PROTOCOL)) {
+            Mono.create<UploadItemTaobaoAppMaterialRequest> { sink ->
+                val filename = itemApplyFormDetail.itemTaobaoAppMaterial.substring(ZIP_PROTOCOL.length)
+                val fileContent = getFileFromRequest(request, filename)
+                println("Upload ${filename} for itemTaobaoMaterial (${itemApplyFormDetail.juId})")
 
-            taoQingCangClient.uploadItemTaobaoAppMaterial(UploadItemTaobaoAppMaterialRequest(
-                    tbToken = request.tbToken,
-                    cookie2 = request.cookie2,
-                    sg = request.sg,
-                    platformId = itemApplyFormDetail.platformId,
-                    itemId = itemApplyFormDetail.itemId,
-                    activityEnterId = itemApplyFormDetail.activityEnterId,
-                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
-            )).map { url ->
-                itemApplyFormDetail.copy(itemMainPic = url)
+                val headers = HttpHeaders()
+                headers.contentType = guessContentType(filename)
+
+                sink.success(UploadItemTaobaoAppMaterialRequest(
+                        tbToken = request.tbToken,
+                        cookie2 = request.cookie2,
+                        sg = request.sg,
+                        platformId = itemApplyFormDetail.platformId,
+                        itemId = itemApplyFormDetail.itemId,
+                        activityEnterId = itemApplyFormDetail.activityEnterId,
+                        pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                ))
+            }.flatMap {
+                taoQingCangClient.uploadItemTaobaoAppMaterial(it)
+            }.map {
+                itemApplyFormDetail.copy(itemTaobaoAppMaterial = it)
             }
         } else {
             Mono.just(itemApplyFormDetail)

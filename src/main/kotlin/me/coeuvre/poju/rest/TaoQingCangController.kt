@@ -7,7 +7,6 @@ import me.coeuvre.poju.thirdparty.taoqingcang.NamedByteArrayResource
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.HttpEntity
 import org.springframework.http.ResponseEntity
 import org.springframework.http.codec.multipart.Part
@@ -49,20 +48,26 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
             val picZip: Part?
     )
 
-    private fun Part.getContentAsInputStream(): Mono<InputStream> = content().map { dataBuffer ->
-        dataBuffer.asInputStream()
-    }.collectList().map { inputStreamList ->
-        inputStreamList.reduce { a, b -> SequenceInputStream(a, b) }
+    private fun Part.getContentAsInputStream(): Mono<ByteArray> {
+        val byteArrayOutputStream = ByteArrayOutputStream()
+
+        return content().concatMap { dataBuffer ->
+            val byteArray = dataBuffer.asInputStream().readBytes()
+            byteArrayOutputStream.write(byteArray)
+            Mono.empty<Void>()
+        }.collectList().map {
+            byteArrayOutputStream.toByteArray()
+        }
     }
 
     @PostMapping("/api/tqc/UpdateActivityItems")
     fun updateActivityItems(@ModelAttribute modelMono: Mono<UpdateActivityItemsModel>): Mono<ResponseEntity<ByteArray>> {
         return modelMono.flatMap { model ->
-            model.workbook.getContentAsInputStream().map { XSSFWorkbook(it) }
+            model.workbook.getContentAsInputStream().map { XSSFWorkbook(ByteArrayInputStream(it)) }
                     .flatMap { workbook ->
                         if (model.picZip != null) {
-                            model.picZip.getContentAsInputStream().map { inputStream ->
-                                val zipInputStream = ZipInputStream(inputStream)
+                            model.picZip.getContentAsInputStream().map {
+                                val zipInputStream = ZipInputStream(ByteArrayInputStream(it))
                                 val buffer = ByteArray(4096)
                                 val byteArrayMap = mutableMapOf<String, ByteArray>()
 
@@ -119,8 +124,7 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
     @PostMapping("/api/tqc/UploadItemMainPic")
     fun uploadItemMainPic(@ModelAttribute modelMono: Mono<UploadItemMainPicModel>): Mono<String> =
             modelMono.flatMap { model ->
-                model.pic.getContentAsInputStream().flatMap { inputStream ->
-                    val byteArray = inputStream.readBytes()
+                model.pic.getContentAsInputStream().flatMap { byteArray ->
                     service.taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
                             tbToken = model.tbToken,
                             cookie2 = model.cookie2,

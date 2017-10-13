@@ -213,7 +213,7 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
         }
 
         return itemApplyFormDetailList.withIndex().toFlux()
-                .flatMapSequential { (index, itemApplyFormDetail) ->
+                .concatMap { (index, itemApplyFormDetail) ->
                     println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
                     updateActivityItem(request, itemApplyFormDetail)
                             .map { Pair<ItemApplyFormDetail, String?>(itemApplyFormDetail, null) }

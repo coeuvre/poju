@@ -12,8 +12,8 @@ import org.springframework.context.annotation.Bean
 class PojuApplication {
     @Bean
     fun objectMapper(): ObjectMapper = jacksonObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-            .setSerializationInclusion(JsonInclude.Include.NON_NULL)
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        .setSerializationInclusion(JsonInclude.Include.NON_NULL)
 }
 
 fun main(args: Array<String>) {

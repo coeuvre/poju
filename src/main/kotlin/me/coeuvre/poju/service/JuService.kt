@@ -78,15 +78,15 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
                 println("Activity(${request.activityEnterId}) has ${it.totalItem} items")
                 it.totalItem
             }
-        }, { queryItemsRequest ->
-            println("Fetching page ${queryItemsRequest.currentPage}/${queryItemsRequest.pageCount}")
+        }, { queryPagedItemsRequest ->
+            println("Fetching page ${queryPagedItemsRequest.currentPage}/${queryPagedItemsRequest.pageCount}")
 
             client.queryItems(queryItemsRequestTemplate.copy(
-                currentPage = queryItemsRequest.currentPage,
-                pageSize = queryItemsRequest.pageSize)
+                currentPage = queryPagedItemsRequest.currentPage,
+                pageSize = queryPagedItemsRequest.pageSize)
             ).map { queryItemsResponse ->
                 QueryPagedItemsResponse(
-                    currentPage = queryItemsRequest.currentPage,
+                    currentPage = queryPagedItemsRequest.currentPage,
                     itemList = queryItemsResponse.itemList
                 )
             }

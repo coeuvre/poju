@@ -19,10 +19,10 @@ import java.util.zip.ZipInputStream
 @RestController
 class TaoQingCangController(@Autowired val service: TaoQingCangService) {
 
-    @PostMapping("/api/tqc/ExportActivityItems")
+    @PostMapping("/api/tqc/ExportItemApplyFormDetails")
     fun exportActivityItems(@RequestBody request: Mono<ExportActivityItemsRequest>): Mono<ResponseEntity<ByteArray>> {
         return request.flatMap { r ->
-            service.exportActivityItems(r).map { Utils.createExcelResponseEntity(it, "TQC_ActivityItems") }
+            service.exportItemApplyFormDetails(r).map { Utils.createExcelResponseEntity(it, "TQC_ActivityItems") }
         }
     }
 

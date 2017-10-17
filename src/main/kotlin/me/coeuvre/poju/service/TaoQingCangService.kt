@@ -1,5 +1,9 @@
 package me.coeuvre.poju.service
 
+import me.coeuvre.poju.manager.GetItemApplyFormDetailResponse
+import me.coeuvre.poju.manager.JuLikeFlowManager
+import me.coeuvre.poju.manager.QueryPagedItemsResponse
+import me.coeuvre.poju.manager.RowDef
 import me.coeuvre.poju.thirdparty.taoqingcang.*
 import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.FillPatternType
@@ -10,142 +14,99 @@ import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
 import java.awt.Color
 
 data class ExportActivityItemsRequest(
-        val tbToken: String,
-        val cookie2: String,
-        val sg: String,
-        val activityEnterId: Long,
-        val itemStatusCode: String,
-        val actionStatus: String
+    val tbToken: String,
+    val cookie2: String,
+    val sg: String,
+    val activityEnterId: Long,
+    val itemStatusCode: String,
+    val actionStatus: String
 )
 
 data class UpdateActivityItemsRequest(
-        val tbToken: String,
-        val cookie2: String,
-        val sg: String,
-        val workbook: XSSFWorkbook,
-        val zipContentMap: Map<String, ByteArray>?
+    val tbToken: String,
+    val cookie2: String,
+    val sg: String,
+    val workbook: XSSFWorkbook,
+    val zipContentMap: Map<String, ByteArray>?
 )
 
 @Service
-class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
-    private data class GetItemApplyFormDetailResult(
-            val itemApplyFormDetail: ItemApplyFormDetail,
-            val isSuccess: Boolean,
-            val errorMessage: String?
+class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired val taoQingCangClient: TaoQingCangClient) {
+    private val rowDefs: List<RowDef<ItemApplyFormDetail>> = listOf(
+        RowDef("juId", { it.juId.toString() }, { item, value -> item.copy(juId = value.toLong()) }),
+        RowDef("商品ID/itemId", { it.itemId.toString() }, { item, value -> item.copy(itemId = value.toLong()) }),
+        RowDef("platformId", { it.platformId.toString() }, { item, value -> item.copy(platformId = value.toLong()) }),
+        RowDef("活动ID/activityEnterId", { it.activityEnterId.toString() }, { item, value -> item.copy(activityEnterId = value.toLong()) }),
+        RowDef("activityId", { it.activityId.toString() }, { item, value -> item.copy(activityId = value.toLong()) }),
+        RowDef("报名方式/skuType", { it.skuType }, { item, value -> item.copy(skuType = value) }),
+        RowDef("活动价格/activityPrice", { it.activityPrice }, { item, value -> item.copy(activityPrice = value) }),
+        RowDef("priceType", { it.priceType }, { item, value -> item.copy(priceType = value) }),
+        RowDef("库存类型/inventoryType", { it.inventoryType }, { item, value -> item.copy(inventoryType = value) }),
+        RowDef("报名数量/itemCount", { it.itemCount }, { item, value -> item.copy(itemCount = value) }),
+        RowDef("宝贝标题/shortTitle", { it.shortTitle }, { item, value -> item.copy(shortTitle = value) }),
+        RowDef("透明底模特图/itemMainPic", { it.itemMainPic }, { item, value -> item.copy(itemMainPic = value) }),
+        RowDef("透明底平铺图/itemTaobaoAppMaterial", { it.itemTaobaoAppMaterial }, { item, value -> item.copy(itemTaobaoAppMaterial = value) }),
+        RowDef("新版商品标签/itemTqcNewTag", { it.itemTqcNewTag }, { item, value -> item.copy(itemTqcNewTag = value) }),
+        RowDef("设置隐藏选项/itemHiddenSearchTag", { it.itemHiddenSearchTag }, { item, value -> item.copy(itemHiddenSearchTag = value) }),
+        RowDef("运费/payPostage", { it.payPostage }, { item, value -> item.copy(payPostage = value) }),
+        RowDef("每个ID限购/limitNum", { it.limitNum }, { item, value -> item.copy(limitNum = value) }),
+        RowDef("品牌名称/itemBrandName", { it.itemBrandName }, { item, value -> item.copy(itemBrandName = value) })
     )
 
-    private data class RowDef(
-            val name: String,
-            val get: Function1<ItemApplyFormDetail, String>,
-            val set: Function2<ItemApplyFormDetail, String, ItemApplyFormDetail>
-    )
-
-    private val rowDefs = listOf(
-            RowDef("juId", { it.juId.toString() }, { item, value -> item.copy(juId = value.toLong()) }),
-            RowDef("商品ID/itemId", { it.itemId.toString() }, { item, value -> item.copy(itemId = value.toLong()) }),
-            RowDef("platformId", { it.platformId.toString() }, { item, value -> item.copy(platformId = value.toLong()) }),
-            RowDef("活动ID/activityEnterId", { it.activityEnterId.toString() }, { item, value -> item.copy(activityEnterId = value.toLong()) }),
-            RowDef("activityId", { it.activityId.toString() }, { item, value -> item.copy(activityId = value.toLong()) }),
-            RowDef("报名方式/skuType", { it.skuType }, { item, value -> item.copy(skuType = value) }),
-            RowDef("活动价格/activityPrice", { it.activityPrice }, { item, value -> item.copy(activityPrice = value) }),
-            RowDef("priceType", { it.priceType }, { item, value -> item.copy(priceType = value) }),
-            RowDef("库存类型/inventoryType", { it.inventoryType }, { item, value -> item.copy(inventoryType = value) }),
-            RowDef("报名数量/itemCount", { it.itemCount }, { item, value -> item.copy(itemCount = value) }),
-            RowDef("宝贝标题/shortTitle", { it.shortTitle }, { item, value -> item.copy(shortTitle = value) }),
-            RowDef("透明底模特图/itemMainPic", { it.itemMainPic }, { item, value -> item.copy(itemMainPic = value) }),
-            RowDef("透明底平铺图/itemTaobaoAppMaterial", { it.itemTaobaoAppMaterial }, { item, value -> item.copy(itemTaobaoAppMaterial = value) }),
-            RowDef("新版商品标签/itemTqcNewTag", { it.itemTqcNewTag }, { item, value -> item.copy(itemTqcNewTag = value) }),
-            RowDef("设置隐藏选项/itemHiddenSearchTag", { it.itemHiddenSearchTag }, { item, value -> item.copy(itemHiddenSearchTag = value) }),
-            RowDef("运费/payPostage", { it.payPostage }, { item, value -> item.copy(payPostage = value) }),
-            RowDef("每个ID限购/limitNum", { it.limitNum }, { item, value -> item.copy(limitNum = value) }),
-            RowDef("品牌名称/itemBrandName", { it.itemBrandName }, { item, value -> item.copy(itemBrandName = value) })
-    )
-
-    fun exportActivityItems(request: ExportActivityItemsRequest): Mono<XSSFWorkbook> {
-        return queryItemsTotalItem(request)
-                .flatMapMany { totalItem ->
-                    queryAllItems(request, totalItem)
-                            .flatMapSequential { (index, item) -> getItemApplyFormDetail(request, item, index, totalItem) }
-                }
-                .collectList()
-                .map { exportItemApplyFormDetailsToWorkbook(it) }
-    }
-
-    private fun queryItemsTotalItem(request: ExportActivityItemsRequest): Mono<Int> {
-        val queryItemsRequest = QueryItemsRequest(
-                tbToken = request.tbToken,
-                cookie2 = request.cookie2,
-                sg = request.sg,
-                activityEnterId = request.activityEnterId,
-                itemStatusCode = request.itemStatusCode,
-                actionStatus = request.actionStatus,
-                currentPage = 1,
-                pageSize = 0
+    fun exportItemApplyFormDetails(request: ExportActivityItemsRequest): Mono<XSSFWorkbook> {
+        val queryItemsRequestTemplate = QueryItemsRequest(
+            tbToken = request.tbToken,
+            cookie2 = request.cookie2,
+            sg = request.sg,
+            activityEnterId = request.activityEnterId,
+            itemStatusCode = request.itemStatusCode,
+            actionStatus = request.actionStatus,
+            currentPage = 1,
+            pageSize = 0
         )
 
-        return taoQingCangClient.queryItems(queryItemsRequest).map { it.totalItem }
-    }
+        return juLikeFlowManager.exportItemApplyFormDetails({
+            taoQingCangClient.queryItems(queryItemsRequestTemplate).map {
+                println("Activity(${request.activityEnterId}) has ${it.totalItem} items")
+                it.totalItem
+            }
+        }, { queryPagedItemsRequest ->
+            println("Fetching page ${queryPagedItemsRequest.currentPage}/${queryPagedItemsRequest.pageCount}")
 
-    private fun queryAllItems(request: ExportActivityItemsRequest, totalItem: Int): Flux<Pair<Int, Item>> {
-        val pageSize = 20
-        val pageCount = Math.ceil(totalItem * 1.0 / pageSize).toInt()
-        println("Activity(${request.activityEnterId}) has $totalItem items ($pageCount pages)")
-
-        val queryItemsRequestList = (1..pageCount).map { currentPage ->
-            QueryItemsRequest(
-                    tbToken = request.tbToken,
-                    cookie2 = request.cookie2,
-                    sg = request.sg,
-                    activityEnterId = request.activityEnterId,
-                    itemStatusCode = request.itemStatusCode,
-                    actionStatus = request.actionStatus,
-                    currentPage = currentPage,
-                    pageSize = pageSize
-            )
-        }
-
-        return queryItemsRequestList.toFlux()
-                .flatMapSequential { queryItemsRequest ->
-                    println("Fetching page ${queryItemsRequest.currentPage}/$pageCount")
-                    taoQingCangClient.queryItems(queryItemsRequest)
-                            .flatMapMany { response ->
-                                if (response == null || !response.success) {
-                                    throw IllegalStateException(response?.message)
-                                }
-                                response.itemList.withIndex().map { (index, item) ->
-                                    Pair(index + (queryItemsRequest.currentPage - 1) * queryItemsRequest.pageSize, item)
-                                }.toFlux()
-                            }
-                }
-    }
-
-    private fun getItemApplyFormDetail(request: ExportActivityItemsRequest, item: Item, index: Int, count: Int): Mono<GetItemApplyFormDetailResult> {
-        println("Fetching item ${item.juId} (${index + 1}/${count})")
-
-        return taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
+            taoQingCangClient.queryItems(queryItemsRequestTemplate.copy(
+                currentPage = queryPagedItemsRequest.currentPage,
+                pageSize = queryPagedItemsRequest.pageSize
+            )).map { queryItemsResponse ->
+                QueryPagedItemsResponse(
+                    currentPage = queryPagedItemsRequest.currentPage,
+                    itemList = queryItemsResponse.itemList
+                )
+            }
+        }, { getItemApplyFormDetailRequest ->
+            val item = getItemApplyFormDetailRequest.item
+            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentIndex}/${getItemApplyFormDetailRequest.totalCount})")
+            taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
                 tbToken = request.tbToken,
                 cookie2 = request.cookie2,
                 sg = request.sg,
                 juId = item.juId
-        )).map { itemApplyFormDetail ->
-            GetItemApplyFormDetailResult(itemApplyFormDetail = itemApplyFormDetail, isSuccess = true, errorMessage = null)
-        }.onErrorResume { e ->
-            println(e.message)
-            Mono.just(GetItemApplyFormDetailResult(
+            )).map { GetItemApplyFormDetailResponse(it, true, null) }.onErrorResume { e ->
+                println(e.message)
+                Mono.just(GetItemApplyFormDetailResponse(
                     itemApplyFormDetail = ItemApplyFormDetail.empty.copy(juId = item.juId, itemId = item.itemId, shortTitle = item.itemName),
                     isSuccess = false,
                     errorMessage = e.message
-            ))
-        }
+                ))
+            }
+        }, rowDefs)
     }
 
-    private fun exportItemApplyFormDetailsToWorkbook(getItemApplyFormDetailResult: List<GetItemApplyFormDetailResult>): XSSFWorkbook {
+    private fun exportItemApplyFormDetailsToWorkbook(getItemApplyFormDetailResult: List<GetItemApplyFormDetailResponse<ItemApplyFormDetail>>): XSSFWorkbook {
         val workbook = XSSFWorkbook()
         val sheet = workbook.createSheet()
 
@@ -213,53 +174,53 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
         }
 
         return itemApplyFormDetailList.withIndex().toFlux()
-                .concatMap { (index, itemApplyFormDetail) ->
-                    println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
-                    updateActivityItem(request, itemApplyFormDetail)
-                            .map { Pair<ItemApplyFormDetail, String?>(itemApplyFormDetail, null) }
-                            .onErrorResume { e ->
-                                println(e.message)
-                                Mono.just(Pair(itemApplyFormDetail, e.message))
-                            }
-                }
-                .collectList()
-                .flatMap { rows ->
-                    val results = rows.filter { it.second != null }.map { (itemApplyFormDetail, errorMessage) ->
-                        GetItemApplyFormDetailResult(
-                                itemApplyFormDetail = itemApplyFormDetail,
-                                isSuccess = false,
-                                errorMessage = errorMessage
-                        )
+            .concatMap { (index, itemApplyFormDetail) ->
+                println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
+                updateActivityItem(request, itemApplyFormDetail)
+                    .map { Pair<ItemApplyFormDetail, String?>(itemApplyFormDetail, null) }
+                    .onErrorResume { e ->
+                        println(e.message)
+                        Mono.just(Pair(itemApplyFormDetail, e.message))
                     }
+            }
+            .collectList()
+            .flatMap { rows ->
+                val results = rows.filter { it.second != null }.map { (itemApplyFormDetail, errorMessage) ->
+                    GetItemApplyFormDetailResponse(
+                        itemApplyFormDetail = itemApplyFormDetail,
+                        isSuccess = false,
+                        errorMessage = errorMessage
+                    )
+                }
 
-                    if (results.isNotEmpty()) {
-                        println("Found ${results.size} errors")
-                        Mono.just(exportItemApplyFormDetailsToWorkbook(results))
-                    } else {
-                        Mono.empty()
-                    }
+                if (results.isNotEmpty()) {
+                    println("Found ${results.size} errors")
+                    Mono.just(exportItemApplyFormDetailsToWorkbook(results))
+                } else {
+                    Mono.empty()
                 }
+            }
     }
 
     private fun updateActivityItem(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<Void> {
         return uploadItemMainPicIfNeed(request, itemApplyFormDetail)
-                .flatMap { uploadItemTaobaoMaterialIfNeed(request, it) }
-                .flatMap { taoQingCangClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, it) }
+            .flatMap { uploadItemTaobaoMaterialIfNeed(request, it) }
+            .flatMap { taoQingCangClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, it) }
     }
 
     val ZIP_PROTOCOL = "zip://"
 
     private fun getFileFromRequest(request: UpdateActivityItemsRequest, filename: String): ByteArray =
-            request.zipContentMap?.get(filename) ?: throw IllegalArgumentException("Zip 压缩包中没有图片 $filename")
+        request.zipContentMap?.get(filename) ?: throw IllegalArgumentException("Zip 压缩包中没有图片 $filename")
 
     private fun guessContentType(filename: String): MediaType =
-            if (filename.endsWith(".png")) {
-                MediaType.IMAGE_PNG
-            } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
-                MediaType.IMAGE_JPEG
-            } else {
-                throw IllegalArgumentException("只支持 PNG 和 JPG 图片格式")
-            }
+        if (filename.endsWith(".png")) {
+            MediaType.IMAGE_PNG
+        } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
+            MediaType.IMAGE_JPEG
+        } else {
+            throw IllegalArgumentException("只支持 PNG 和 JPG 图片格式")
+        }
 
     private fun uploadItemMainPicIfNeed(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<ItemApplyFormDetail> {
         return if (itemApplyFormDetail.itemMainPic.startsWith(ZIP_PROTOCOL)) {
@@ -272,12 +233,12 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
                 headers.contentType = guessContentType(filename)
 
                 sink.success(UploadItemMainPicRequest(
-                        tbToken = request.tbToken,
-                        cookie2 = request.cookie2,
-                        sg = request.sg,
-                        platformId = itemApplyFormDetail.platformId,
-                        itemId = itemApplyFormDetail.itemId,
-                        pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                    tbToken = request.tbToken,
+                    cookie2 = request.cookie2,
+                    sg = request.sg,
+                    platformId = itemApplyFormDetail.platformId,
+                    itemId = itemApplyFormDetail.itemId,
+                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
                 ))
             }.flatMap {
                 taoQingCangClient.uploadItemMainPic(it)
@@ -301,13 +262,13 @@ class TaoQingCangService(@Autowired val taoQingCangClient: TaoQingCangClient) {
                 headers.contentType = guessContentType(filename)
 
                 sink.success(UploadItemTaobaoAppMaterialRequest(
-                        tbToken = request.tbToken,
-                        cookie2 = request.cookie2,
-                        sg = request.sg,
-                        platformId = itemApplyFormDetail.platformId,
-                        itemId = itemApplyFormDetail.itemId,
-                        activityEnterId = itemApplyFormDetail.activityEnterId,
-                        pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                    tbToken = request.tbToken,
+                    cookie2 = request.cookie2,
+                    sg = request.sg,
+                    platformId = itemApplyFormDetail.platformId,
+                    itemId = itemApplyFormDetail.itemId,
+                    activityEnterId = itemApplyFormDetail.activityEnterId,
+                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
                 ))
             }.flatMap {
                 taoQingCangClient.uploadItemTaobaoAppMaterial(it)

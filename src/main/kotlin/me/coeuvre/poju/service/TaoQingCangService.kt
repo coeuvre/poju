@@ -5,18 +5,10 @@ import me.coeuvre.poju.manager.JuLikeFlowManager
 import me.coeuvre.poju.manager.QueryPagedItemsResponse
 import me.coeuvre.poju.manager.RowDef
 import me.coeuvre.poju.thirdparty.taoqingcang.*
-import org.apache.poi.ss.usermodel.CellType
-import org.apache.poi.ss.usermodel.FillPatternType
-import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.http.HttpEntity
-import org.springframework.http.HttpHeaders
-import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
-import reactor.core.publisher.toFlux
-import java.awt.Color
 
 data class ExportActivityItemsRequest(
     val tbToken: String,
@@ -27,12 +19,12 @@ data class ExportActivityItemsRequest(
     val actionStatus: String
 )
 
-data class UpdateActivityItemsRequest(
+data class UpdateItemApplyFormDetail(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
     val workbook: XSSFWorkbook,
-    val zipContentMap: Map<String, ByteArray>?
+    val zipImagesMap: Map<String, ByteArray>?
 )
 
 @Service
@@ -84,12 +76,13 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
             )).map { queryItemsResponse ->
                 QueryPagedItemsResponse(
                     currentPage = queryPagedItemsRequest.currentPage,
+                    totalCount = queryItemsResponse.totalItem,
                     itemList = queryItemsResponse.itemList
                 )
             }
         }, { getItemApplyFormDetailRequest ->
             val item = getItemApplyFormDetailRequest.item
-            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentIndex}/${getItemApplyFormDetailRequest.totalCount})")
+            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentCount}/${getItemApplyFormDetailRequest.totalCount})")
             taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
                 tbToken = request.tbToken,
                 cookie2 = request.cookie2,
@@ -106,177 +99,37 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
         }, rowDefs)
     }
 
-    private fun exportItemApplyFormDetailsToWorkbook(getItemApplyFormDetailResult: List<GetItemApplyFormDetailResponse<ItemApplyFormDetail>>): XSSFWorkbook {
-        val workbook = XSSFWorkbook()
-        val sheet = workbook.createSheet()
-
-        val titleStyle = workbook.createCellStyle()
-        val font = workbook.createFont()
-        font.setColor(XSSFColor(Color(255, 255, 255)))
-        titleStyle.setFont(font)
-        titleStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
-        titleStyle.setFillForegroundColor(XSSFColor(Color(0, 0, 0)))
-
-        val errorStyle = workbook.createCellStyle()
-        errorStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
-        errorStyle.setFillForegroundColor(XSSFColor(Color(255, 199, 206)))
-
-        // Create title row
-        val titleRow = sheet.createRow(0)
-        rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
-            val cell = titleRow.createCell(cellIndex)
-            cell.cellStyle = titleStyle
-            cell.setCellValue(rowDef.name)
-        }
-
-        getItemApplyFormDetailResult.withIndex().forEach { (rowIndex, result) ->
-            val row = sheet.createRow(1 + rowIndex)
-            rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
-                val cell = row.createCell(cellIndex)
-                if (!result.isSuccess) {
-                    cell.cellStyle = errorStyle
-                }
-                cell.setCellValue(rowDef.get(result.itemApplyFormDetail))
-            }
-            if (!result.isSuccess) {
-                row.createCell(rowDefs.size).setCellValue(result.errorMessage)
-            }
-        }
-
-        return workbook
-    }
-
-    fun updateActivityItems(request: UpdateActivityItemsRequest): Mono<XSSFWorkbook> {
-        val sheet = request.workbook.getSheetAt(0)
-
-        val titleRow = sheet.getRow(0)
-        rowDefs.withIndex().map { (index, rowDef) ->
-            val cell = titleRow.getCell(index)
-            if (cell == null || rowDef.name != cell.stringCellValue) {
-                throw IllegalArgumentException("Excel 格式错误: 第${index}列应该是 ${rowDef.name}")
-            }
-        }
-
-        val itemApplyFormDetailList = (1..sheet.lastRowNum).map { rowIndex ->
-            val row = sheet.getRow(rowIndex)
-            var itemApplyFormDetail = ItemApplyFormDetail.empty
-            rowDefs.withIndex().map { (index, rowDef) ->
-                val cell = row.getCell(index)
-                if (cell != null) {
-                    val value = when (cell.cellTypeEnum) {
-                        CellType.NUMERIC -> cell.numericCellValue.toString()
-                        else -> cell.stringCellValue
-                    }
-                    itemApplyFormDetail = rowDef.set(itemApplyFormDetail, value)
-                }
-            }
-            itemApplyFormDetail
-        }
-
-        return itemApplyFormDetailList.withIndex().toFlux()
-            .concatMap { (index, itemApplyFormDetail) ->
-                println("Updating item ${itemApplyFormDetail.juId} (${index + 1}/${itemApplyFormDetailList.size})")
-                updateActivityItem(request, itemApplyFormDetail)
-                    .map { Pair<ItemApplyFormDetail, String?>(itemApplyFormDetail, null) }
-                    .onErrorResume { e ->
-                        println(e.message)
-                        Mono.just(Pair(itemApplyFormDetail, e.message))
-                    }
-            }
-            .collectList()
-            .flatMap { rows ->
-                val results = rows.filter { it.second != null }.map { (itemApplyFormDetail, errorMessage) ->
-                    GetItemApplyFormDetailResponse(
-                        itemApplyFormDetail = itemApplyFormDetail,
-                        isSuccess = false,
-                        errorMessage = errorMessage
-                    )
-                }
-
-                if (results.isNotEmpty()) {
-                    println("Found ${results.size} errors")
-                    Mono.just(exportItemApplyFormDetailsToWorkbook(results))
-                } else {
-                    Mono.empty()
-                }
-            }
-    }
-
-    private fun updateActivityItem(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<Void> {
-        return uploadItemMainPicIfNeed(request, itemApplyFormDetail)
-            .flatMap { uploadItemTaobaoMaterialIfNeed(request, it) }
-            .flatMap { taoQingCangClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, it) }
-    }
-
-    val ZIP_PROTOCOL = "zip://"
-
-    private fun getFileFromRequest(request: UpdateActivityItemsRequest, filename: String): ByteArray =
-        request.zipContentMap?.get(filename) ?: throw IllegalArgumentException("Zip 压缩包中没有图片 $filename")
-
-    private fun guessContentType(filename: String): MediaType =
-        if (filename.endsWith(".png")) {
-            MediaType.IMAGE_PNG
-        } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
-            MediaType.IMAGE_JPEG
-        } else {
-            throw IllegalArgumentException("只支持 PNG 和 JPG 图片格式")
-        }
-
-    private fun uploadItemMainPicIfNeed(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<ItemApplyFormDetail> {
-        return if (itemApplyFormDetail.itemMainPic.startsWith(ZIP_PROTOCOL)) {
-            Mono.create<UploadItemMainPicRequest> { sink ->
-                val filename = itemApplyFormDetail.itemMainPic.substring(ZIP_PROTOCOL.length)
-                val fileContent = getFileFromRequest(request, filename)
-                println("Upload ${filename} for itemMainPic (${itemApplyFormDetail.juId})")
-
-                val headers = HttpHeaders()
-                headers.contentType = guessContentType(filename)
-
-                sink.success(UploadItemMainPicRequest(
+    fun updateItemApplyFormDetail(request: UpdateItemApplyFormDetail): Mono<XSSFWorkbook> = juLikeFlowManager.updateItemApplyFormDetails(
+        request.workbook,
+        request.zipImagesMap,
+        rowDefs,
+        ItemApplyFormDetail.empty,
+        { uploadImageRequest ->
+            val name = uploadImageRequest.rowDef.name
+            val item = uploadImageRequest.item
+            when {
+                name.contains("itemMainPic") -> taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
                     tbToken = request.tbToken,
                     cookie2 = request.cookie2,
                     sg = request.sg,
-                    platformId = itemApplyFormDetail.platformId,
-                    itemId = itemApplyFormDetail.itemId,
-                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                    platformId = item.platformId,
+                    itemId = item.itemId,
+                    pic = uploadImageRequest.image
                 ))
-            }.flatMap {
-                taoQingCangClient.uploadItemMainPic(it)
-            }.map {
-                itemApplyFormDetail.copy(itemMainPic = it)
-            }
-        } else {
-            Mono.just(itemApplyFormDetail)
-        }
-    }
-
-    private fun uploadItemTaobaoMaterialIfNeed(request: UpdateActivityItemsRequest, itemApplyFormDetail: ItemApplyFormDetail): Mono<ItemApplyFormDetail> {
-
-        return if (itemApplyFormDetail.itemTaobaoAppMaterial.startsWith(ZIP_PROTOCOL)) {
-            Mono.create<UploadItemTaobaoAppMaterialRequest> { sink ->
-                val filename = itemApplyFormDetail.itemTaobaoAppMaterial.substring(ZIP_PROTOCOL.length)
-                val fileContent = getFileFromRequest(request, filename)
-                println("Upload ${filename} for itemTaobaoMaterial (${itemApplyFormDetail.juId})")
-
-                val headers = HttpHeaders()
-                headers.contentType = guessContentType(filename)
-
-                sink.success(UploadItemTaobaoAppMaterialRequest(
+                name.contains("itemTaobaoMaterial") -> taoQingCangClient.uploadItemTaobaoAppMaterial(UploadItemTaobaoAppMaterialRequest(
                     tbToken = request.tbToken,
                     cookie2 = request.cookie2,
                     sg = request.sg,
-                    platformId = itemApplyFormDetail.platformId,
-                    itemId = itemApplyFormDetail.itemId,
-                    activityEnterId = itemApplyFormDetail.activityEnterId,
-                    pic = HttpEntity(NamedByteArrayResource(filename, fileContent), headers)
+                    platformId = item.platformId,
+                    itemId = item.itemId,
+                    activityEnterId = item.activityEnterId,
+                    pic = uploadImageRequest.image
                 ))
-            }.flatMap {
-                taoQingCangClient.uploadItemTaobaoAppMaterial(it)
-            }.map {
-                itemApplyFormDetail.copy(itemTaobaoAppMaterial = it)
+                else -> Mono.empty()
             }
-        } else {
-            Mono.just(itemApplyFormDetail)
+        },
+        { updateItemApplyFormDetailRequest ->
+            taoQingCangClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, updateItemApplyFormDetailRequest.item)
         }
-    }
+    )
 }

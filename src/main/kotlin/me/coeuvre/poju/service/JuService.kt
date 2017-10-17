@@ -87,12 +87,13 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
             ).map { queryItemsResponse ->
                 QueryPagedItemsResponse(
                     currentPage = queryPagedItemsRequest.currentPage,
-                    itemList = queryItemsResponse.itemList
+                    itemList = queryItemsResponse.itemList,
+                    totalCount = queryItemsResponse.totalItem
                 )
             }
         }, { getItemApplyFormDetailRequest ->
             val item = getItemApplyFormDetailRequest.item
-            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentIndex}/${getItemApplyFormDetailRequest.totalCount})")
+            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentCount}/${getItemApplyFormDetailRequest.totalCount})")
             client.getItemApplyFormDetail(request.cookie2, request.tbToken, request.sg, item.juId)
                 .map { GetItemApplyFormDetailResponse(it, true, null) }
                 .onErrorResume { e ->

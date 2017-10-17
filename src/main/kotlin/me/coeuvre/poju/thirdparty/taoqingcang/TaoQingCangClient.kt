@@ -2,6 +2,7 @@ package me.coeuvre.poju.thirdparty.taoqingcang
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
+import me.coeuvre.poju.util.NamedByteArrayResource
 import org.jsoup.Jsoup
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.core.io.ByteArrayResource
@@ -96,10 +97,6 @@ data class SubmitItemApplyFormResponse(
         val errorInfo: String?
 )
 
-class NamedByteArrayResource(private val filename: String, byteArray: ByteArray) : ByteArrayResource(byteArray) {
-    override fun getFilename(): String = filename
-}
-
 data class UploadItemMainPicRequest(
         val tbToken: String,
         val cookie2: String,
@@ -116,7 +113,7 @@ data class UploadItemTaobaoAppMaterialRequest(
         val platformId: Long,
         val itemId: Long,
         val activityEnterId: Long,
-        val pic: HttpEntity<Resource>
+        val pic: HttpEntity<NamedByteArrayResource>
 )
 
 data class UploadImageResponse(

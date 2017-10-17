@@ -2,9 +2,9 @@ package me.coeuvre.poju.web.rest
 
 import me.coeuvre.poju.service.ExportActivityItemsRequest
 import me.coeuvre.poju.service.TaoQingCangService
-import me.coeuvre.poju.service.UpdateActivityItemsRequest
-import me.coeuvre.poju.thirdparty.taoqingcang.NamedByteArrayResource
+import me.coeuvre.poju.service.UpdateItemApplyFormDetail
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
+import me.coeuvre.poju.util.NamedByteArrayResource
 import me.coeuvre.poju.util.Utils
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
@@ -81,12 +81,12 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
                         }
                     }
                     .flatMap { (workbook, zipContentMap) ->
-                        service.updateActivityItems(UpdateActivityItemsRequest(
+                        service.updateItemApplyFormDetail(UpdateItemApplyFormDetail(
                                 tbToken = model.tbToken,
                                 cookie2 = model.cookie2,
                                 sg = model.sg,
                                 workbook = workbook,
-                                zipContentMap = zipContentMap
+                                zipImagesMap = zipContentMap
                         )).map { errorWorkbook: XSSFWorkbook? ->
                             if (errorWorkbook != null) {
                                 Utils.createExcelResponseEntity(errorWorkbook, "TQC_ErrorItems")

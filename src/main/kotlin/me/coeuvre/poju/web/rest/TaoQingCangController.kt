@@ -1,10 +1,11 @@
-package me.coeuvre.poju.rest
+package me.coeuvre.poju.web.rest
 
 import me.coeuvre.poju.service.ExportActivityItemsRequest
 import me.coeuvre.poju.service.TaoQingCangService
 import me.coeuvre.poju.service.UpdateActivityItemsRequest
 import me.coeuvre.poju.thirdparty.taoqingcang.NamedByteArrayResource
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
+import me.coeuvre.poju.util.Utils
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpEntity
@@ -18,25 +19,10 @@ import java.util.zip.ZipInputStream
 @RestController
 class TaoQingCangController(@Autowired val service: TaoQingCangService) {
 
-    private fun sendExcel(workbook: XSSFWorkbook, filename: String): ResponseEntity<ByteArray> {
-        val file = File.createTempFile(filename, ".xlsx")
-        workbook.write(FileOutputStream(file))
-        println("Saved to ${file.absolutePath}")
-
-        val output = ByteArrayOutputStream()
-        workbook.write(output)
-        val bytes = output.toByteArray()
-        return ResponseEntity.ok()
-                .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                .header("Content-disposition", "attachment; filename=$filename.xls")
-                .contentLength(bytes.size.toLong())
-                .body(bytes)
-    }
-
     @PostMapping("/api/tqc/ExportActivityItems")
     fun exportActivityItems(@RequestBody request: Mono<ExportActivityItemsRequest>): Mono<ResponseEntity<ByteArray>> {
         return request.flatMap { r ->
-            service.exportActivityItems(r).map { sendExcel(it, "TQC_ActivityItems") }
+            service.exportActivityItems(r).map { Utils.createExcelResponseEntity(it, "TQC_ActivityItems") }
         }
     }
 
@@ -103,7 +89,7 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
                                 zipContentMap = zipContentMap
                         )).map { errorWorkbook: XSSFWorkbook? ->
                             if (errorWorkbook != null) {
-                                sendExcel(errorWorkbook, "TQC_ErrorItems")
+                                Utils.createExcelResponseEntity(errorWorkbook, "TQC_ErrorItems")
                             } else {
                                 ResponseEntity.ok().body(ByteArray(0))
                             }

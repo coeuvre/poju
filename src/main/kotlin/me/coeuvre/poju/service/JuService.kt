@@ -19,8 +19,16 @@ data class ExportItemApplyFormDetailsRequest(
     val actionStatus: String
 )
 
+data class UpdateItemApplyFormDetailsRequest(
+    val cookie2: String,
+    val tbToken: String,
+    val sg: String,
+    val workbook: XSSFWorkbook,
+    val zipImagesMap: Map<String, ByteArray>
+)
+
 @Service
-class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client: JuClient) {
+class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired val juClient: JuClient) {
 
     private val rowDefs = listOf(
         RowDef<ItemApplyFormDetail>("juId", { it.juId }, { item, value -> item.copy(juId = value) }),
@@ -73,8 +81,8 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
             pageSize = 0
         )
 
-        return manager.exportItemApplyFormDetails({ queryPagedItemsRequest ->
-            client.queryItems(queryItemsRequestTemplate.copy(
+        return juLikeFlowManager.exportItemApplyFormDetails({ queryPagedItemsRequest ->
+            juClient.queryItems(queryItemsRequestTemplate.copy(
                 currentPage = queryPagedItemsRequest.currentPage,
                 pageSize = queryPagedItemsRequest.pageSize)
             ).map { queryItemsResponse ->
@@ -86,7 +94,7 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
             }
         }, { getItemApplyFormDetailRequest ->
             val item = getItemApplyFormDetailRequest.item
-            client.getItemApplyFormDetail(request.cookie2, request.tbToken, request.sg, item.juId)
+            juClient.getItemApplyFormDetail(request.cookie2, request.tbToken, request.sg, item.juId)
                 .map { GetItemApplyFormDetailResponse(it, true, null) }
                 .onErrorResume { e ->
                     println(e.message)
@@ -97,5 +105,13 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
                     ))
                 }
         }, rowDefs)
+    }
+
+    fun updateItemApplyFormDetails(request: UpdateItemApplyFormDetailsRequest): Mono<XSSFWorkbook> {
+        return juLikeFlowManager.updateItemApplyFormDetails(request.workbook, request.zipImagesMap, rowDefs, ItemApplyFormDetail.empty, { uploadImageRequest ->
+            Mono.just(uploadImageRequest.image.body?.filename.orEmpty())
+        }, { updateItemApplyFormDetailRequest ->
+            juClient.submitItemApplyForm(request.cookie2, request.tbToken, request.sg, updateItemApplyFormDetailRequest.item)
+        })
     }
 }

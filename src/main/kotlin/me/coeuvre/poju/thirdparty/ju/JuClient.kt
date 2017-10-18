@@ -3,11 +3,15 @@ package me.coeuvre.poju.thirdparty.ju
 import com.fasterxml.jackson.annotation.*
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
+import com.fasterxml.jackson.module.kotlin.readValue
 import org.jsoup.Jsoup
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
+import org.springframework.util.LinkedMultiValueMap
+import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.bodyToMono
 import org.springframework.web.util.UriComponentsBuilder
 import reactor.core.publisher.Mono
 import java.net.URI
@@ -121,6 +125,12 @@ data class QueryItemsResponseItem(
     val itemName: String
 )
 
+data class SubmitItemApplyFormResponse(
+    val success: Boolean,
+    val errorType: String?,
+    val errorInfo: String?
+)
+
 @Service
 class JuClient(@Autowired private val objectMapper: ObjectMapper) {
 
@@ -133,7 +143,7 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
         builder.queryParam("actionStatus", request.actionStatus)
         builder.queryParam("currentPage", request.currentPage)
         builder.queryParam("pageSize", request.pageSize)
-        return doRequest(request.cookie2, request.tbToken, request.sg, builder.build().encode().toUri())
+        return doGetRequest(request.cookie2, request.tbToken, request.sg, builder.build().encode().toUri())
             .flatMap { response ->
                 response.bodyToMono(String::class.java)
                     .map { body ->
@@ -160,7 +170,7 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
         val builder = UriComponentsBuilder.fromHttpUrl("https://freeway.ju.taobao.com/tg/itemApplyFormDetail.htm")
         builder.queryParam("_input_charset", "UTF-8")
         builder.queryParam("juId", juId)
-        return doRequest(cookie2, tbToken, sg, builder.build().encode().toUri())
+        return doGetRequest(cookie2, tbToken, sg, builder.build().encode().toUri())
             .flatMap { response ->
                 if (response.statusCode().value() != 200) {
                     throw IllegalArgumentException("Invalid item " + juId)
@@ -193,7 +203,39 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
             }
     }
 
-    private fun doRequest(cookie2: String, tbToken: String, sg: String, uri: URI): Mono<ClientResponse> {
+    fun submitItemApplyForm(cookie2: String, tbToken: String, sg: String, itemApplyFormDetail: ItemApplyFormDetail): Mono<Void> {
+        val multipartData = LinkedMultiValueMap<String, String>()
+        objectMapper.convertValue<Map<String, String>>(itemApplyFormDetail).forEach { (name, value) ->
+            multipartData.add(name, value)
+        }
+        multipartData.add("action", "/tg/ItemPostAction")
+        multipartData.add("event_submit_do_update", "true")
+        multipartData.add("_tb_token_", tbToken)
+
+        return WebClient.create()
+            .post()
+            .uri("https://freeway.ju.taobao.com/tg/json/queryItems.htm?_input_charset=UTF-8")
+            .cookie("_tb_token_", tbToken)
+            .cookie("cookie2", cookie2)
+            .cookie("sg", sg)
+            .body(BodyInserters.fromMultipartData(multipartData))
+            .exchange()
+            .flatMap { response ->
+                response.bodyToMono<String>().map { body ->
+                    if (!response.statusCode().is2xxSuccessful) {
+                        throw IllegalStateException(body)
+                    }
+
+                    val submitItemApplyFormResponse = objectMapper.readValue<SubmitItemApplyFormResponse>(body)
+                    if (!submitItemApplyFormResponse.success) {
+                        throw IllegalStateException(submitItemApplyFormResponse.errorInfo)
+                    }
+                }
+            }
+            .then()
+    }
+
+    private fun doGetRequest(cookie2: String, tbToken: String, sg: String, uri: URI): Mono<ClientResponse> {
         return WebClient.create()
             .get()
             .uri(uri)

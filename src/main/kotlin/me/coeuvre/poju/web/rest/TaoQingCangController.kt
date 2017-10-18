@@ -6,6 +6,7 @@ import me.coeuvre.poju.service.UpdateItemApplyFormDetail
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
 import me.coeuvre.poju.util.NamedByteArrayResource
 import me.coeuvre.poju.util.Utils
+import me.coeuvre.poju.util.getContentAsByteArray
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpEntity
@@ -34,25 +35,13 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
         val picZip: Part?
     )
 
-    private fun Part.getContentAsInputStream(): Mono<ByteArray> {
-        val byteArrayOutputStream = ByteArrayOutputStream()
-
-        return content().concatMap { dataBuffer ->
-            val byteArray = dataBuffer.asInputStream().readBytes()
-            byteArrayOutputStream.write(byteArray)
-            Mono.empty<Void>()
-        }.collectList().map {
-            byteArrayOutputStream.toByteArray()
-        }
-    }
-
     @PostMapping("/api/tqc/UpdateActivityItems")
     fun updateActivityItems(@ModelAttribute modelMono: Mono<UpdateActivityItemsModel>): Mono<ResponseEntity<ByteArray>> {
         return modelMono.flatMap { model ->
-            model.workbook.getContentAsInputStream().map { XSSFWorkbook(ByteArrayInputStream(it)) }
+            model.workbook.getContentAsByteArray().map { XSSFWorkbook(ByteArrayInputStream(it)) }
                 .flatMap { workbook ->
                     if (model.picZip != null) {
-                        model.picZip.getContentAsInputStream().map {
+                        model.picZip.getContentAsByteArray().map {
                             val zipInputStream = ZipInputStream(ByteArrayInputStream(it))
                             val buffer = ByteArray(4096)
                             val byteArrayMap = mutableMapOf<String, ByteArray>()
@@ -111,7 +100,7 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
     @PostMapping("/api/tqc/UploadItemMainPic")
     fun uploadItemMainPic(@ModelAttribute modelMono: Mono<UploadItemMainPicModel>): Mono<String> =
         modelMono.flatMap { model ->
-            model.pic.getContentAsInputStream().flatMap { byteArray ->
+            model.pic.getContentAsByteArray().flatMap { byteArray ->
                 service.taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
                     tbToken = model.tbToken,
                     cookie2 = model.cookie2,

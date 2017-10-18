@@ -7,8 +7,15 @@ import me.coeuvre.poju.manager.RowDef
 import me.coeuvre.poju.thirdparty.ju.*
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.stereotype.Service
+import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.bodyToMono
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toFlux
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 data class ExportItemApplyFormDetailsRequest(
     val cookie2: String,
@@ -113,5 +120,99 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
         }, { updateItemApplyFormDetailRequest ->
             juClient.submitItemApplyForm(request.cookie2, request.tbToken, request.sg, updateItemApplyFormDetailRequest.item)
         })
+    }
+
+    data class DownloadImageResult(
+        val articleNo: String,
+        val isSuccess: Boolean,
+        val byteArray: ByteArray?,
+        val errorMessage: String?
+    )
+
+    val articleNoRowTitle = "Article No"
+
+    fun downloadArticleImages(workbook: XSSFWorkbook): Mono<ByteArray> {
+        val sheet = workbook.getSheetAt(0)
+
+        val titleRow = sheet.getRow(0)
+        val articleNoTitleCell = titleRow.getCell(0)
+        if (articleNoTitleCell == null || articleNoTitleCell.stringCellValue != articleNoRowTitle) {
+            throw IllegalArgumentException("Excel 格式错误: 第${1}列应该是 $articleNoRowTitle")
+        }
+
+        val articleNoList = (1..sheet.lastRowNum).map { rowIndex ->
+            val row = sheet.getRow(rowIndex)
+            val cell = row.getCell(0)
+            cell.stringCellValue
+        }.filter { it.isNotBlank() }
+
+        return doDownloadImages(articleNoList)
+    }
+
+    private fun doDownloadImages(articleNoList: List<String>): Mono<ByteArray> {
+        val totalCount = articleNoList.size
+
+        return articleNoList.withIndex().toFlux()
+            .flatMapSequential({ (index, articleNo) ->
+                val url = "http://pic.shopadidas.cn/product/$articleNo/touming.png"
+                println("Downloading ${index + 1}/$totalCount ($url)")
+                WebClient.create(url)
+                    .get()
+                    .exchange()
+                    .flatMap { response ->
+                        if (!response.statusCode().is2xxSuccessful) {
+                            throw IllegalStateException("${response.statusCode().value()} ${response.statusCode().reasonPhrase}")
+                        }
+
+                        response.bodyToMono<ByteArrayResource>().map { byteArrayResource ->
+                            DownloadImageResult(articleNo, true, byteArrayResource.byteArray, null)
+                        }
+                    }
+                    .onErrorResume { e ->
+                        println("${e.message}: $url")
+                        Mono.just(DownloadImageResult(articleNo, false, null, e.message))
+                    }
+            }, 5)
+            .collectList()
+            .map { downloadImageResultList ->
+                val byteArrayOutputStream = ByteArrayOutputStream()
+                val zipOutputStream = ZipOutputStream(byteArrayOutputStream)
+
+                downloadImageResultList.filter { it.isSuccess }.forEach { downloadImageResult ->
+                    val zipEntry = ZipEntry("素材图/${downloadImageResult.articleNo}.png")
+                    zipOutputStream.putNextEntry(zipEntry)
+                    zipOutputStream.write(downloadImageResult.byteArray)
+                }
+
+                val failedResult = downloadImageResultList.filter { !it.isSuccess }
+                if (failedResult.isNotEmpty()) {
+                    val workbook = XSSFWorkbook()
+                    val sheet = workbook.createSheet()
+
+                    val titleRow = sheet.createRow(0)
+                    val articleNoTitleCell = titleRow.createCell(0)
+                    articleNoTitleCell.setCellValue(articleNoRowTitle)
+
+                    failedResult.withIndex().forEach { (index, result) ->
+                        val row = sheet.createRow(1 + index)
+                        val articleNoCell = row.createCell(0)
+                        articleNoCell.setCellValue(result.articleNo)
+                        val errorMessageCell = row.createCell(1)
+                        errorMessageCell.setCellValue(result.errorMessage)
+                    }
+
+                    val workbookByteArrayOutputStream = ByteArrayOutputStream()
+                    workbook.write(workbookByteArrayOutputStream)
+
+                    val zipEntry = ZipEntry("ErrorArticleNo.xlsx")
+                    zipOutputStream.putNextEntry(zipEntry)
+                    zipOutputStream.write(workbookByteArrayOutputStream.toByteArray())
+                }
+
+                zipOutputStream.close()
+                byteArrayOutputStream.close()
+
+                byteArrayOutputStream.toByteArray()
+            }
     }
 }

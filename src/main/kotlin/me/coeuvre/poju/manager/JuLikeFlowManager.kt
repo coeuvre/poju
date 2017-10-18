@@ -6,6 +6,7 @@ import org.apache.poi.ss.usermodel.FillPatternType
 import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.slf4j.LoggerFactory
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
@@ -147,7 +148,7 @@ class JuLikeFlowManager {
         rowDefList.withIndex().map { (index, rowDef) ->
             val cell = titleRow.getCell(index)
             if (cell == null || rowDef.name != cell.stringCellValue) {
-                throw IllegalArgumentException("Excel 格式错误: 第${index}列应该是 ${rowDef.name}")
+                throw IllegalArgumentException("Excel 格式错误: 第${index + 1}列应该是 ${rowDef.name}")
             }
         }
 
@@ -246,8 +247,8 @@ class JuLikeFlowManager {
                         throw IllegalArgumentException("只支持 PNG 和 JPG 图片格式")
                     }
 
-                    response.bodyToMono<ByteArray>().map { byteArray ->
-                        HttpEntity(NamedByteArrayResource(uri.path, byteArray), headers)
+                    response.bodyToMono<ByteArrayResource>().map { byteArrayResource ->
+                        HttpEntity(NamedByteArrayResource(uri.path, byteArrayResource.byteArray), headers)
                     }
                 }
         } else {

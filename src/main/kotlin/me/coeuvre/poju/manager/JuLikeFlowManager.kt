@@ -5,14 +5,18 @@ import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.FillPatternType
 import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.bodyToMono
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
 import java.awt.Color
+import java.net.URI
 
 data class RowDef<T>(
     val name: String,
@@ -56,28 +60,38 @@ const val ZIP_PROTOCOL = "zip://"
 
 @Component
 class JuLikeFlowManager {
-    fun <I, D> exportItemApplyFormDetails(queryTotalCount: () -> Mono<Int>,
-                                          queryPagedItems: (QueryPagedItemsRequest) -> Mono<QueryPagedItemsResponse<I>>,
+    val log = LoggerFactory.getLogger(JuLikeFlowManager::class.java)
+
+    fun <I, D> exportItemApplyFormDetails(queryPagedItems: (QueryPagedItemsRequest) -> Mono<QueryPagedItemsResponse<I>>,
                                           getItemApplyFormDetail: (GetItemApplyFormDetailRequest<I>) -> Mono<GetItemApplyFormDetailResponse<D>>,
                                           rowDefList: List<RowDef<D>>): Mono<XSSFWorkbook> {
-        return queryTotalCount().flatMapMany { totalCount ->
-            val pageSize = 20
-            val pageCount = Math.ceil(totalCount * 1.0 / pageSize).toInt()
-            val queryItemsRequestList = (1..pageCount).map {
-                QueryPagedItemsRequest(currentPage = it, pageCount = pageCount, pageSize = pageSize, totalCount = totalCount)
-            }
-            queryItemsRequestList.toFlux()
-                .flatMapSequential { queryPagedItems(it) }
-                .flatMapSequential { queryItemsResponse ->
-                    queryItemsResponse.itemList.withIndex().toFlux().flatMap { (index, item) ->
-                        getItemApplyFormDetail(GetItemApplyFormDetailRequest(
-                            (queryItemsResponse.currentPage - 1) * pageSize + index + 1,
-                            totalCount,
-                            item)
-                        )
-                    }
+        log.info("Fetching total items count")
+        return queryPagedItems(QueryPagedItemsRequest(currentPage = 1, pageCount = 0, pageSize = 0, totalCount = 0))
+            .map { it.totalCount }
+            .flatMapMany { totalCount ->
+                log.info("Exporting $totalCount items")
+
+                val pageSize = 20
+                val pageCount = Math.ceil(totalCount * 1.0 / pageSize).toInt()
+                val queryItemsRequestList = (1..pageCount).map { currentPgae ->
+                    QueryPagedItemsRequest(currentPage = currentPgae, pageCount = pageCount, pageSize = pageSize, totalCount = totalCount)
                 }
-        }.collectList().map { generateWorkbook(rowDefList, it) }
+                queryItemsRequestList.toFlux()
+                    .flatMapSequential { queryItemsRequest ->
+                        log.info("Fetching page ${queryItemsRequest.currentPage}/${queryItemsRequest.pageCount}")
+
+                        queryPagedItems(queryItemsRequest)
+                    }
+                    .flatMapSequential { queryItemsResponse ->
+                        queryItemsResponse.itemList.withIndex().toFlux().flatMap { (index, item) ->
+                            val currentCount = (queryItemsResponse.currentPage - 1) * pageSize + index + 1
+                            log.info("Fetching item ($currentCount/$totalCount)")
+                            getItemApplyFormDetail(GetItemApplyFormDetailRequest(currentCount, totalCount, item))
+                        }
+                    }
+            }
+            .collectList()
+            .map { generateWorkbook(rowDefList, it) }
     }
 
     private fun <T> generateWorkbook(rowDefList: List<RowDef<T>>, getItemApplyFormDetailResponseList: List<GetItemApplyFormDetailResponse<T>>): XSSFWorkbook {
@@ -161,7 +175,7 @@ class JuLikeFlowManager {
                 updateItemApplyFormDetail(index, totalCount, zipImagesMap, item, rowDefList, uploadImage, updateItemApplyFormDetail)
                     .map { GetItemApplyFormDetailResponse(item, true, null) }
                     .onErrorResume { e ->
-                        println(e.message)
+                        log.error(e.message, e)
                         Mono.just(GetItemApplyFormDetailResponse(item, false, e.message))
                     }
             }
@@ -169,7 +183,7 @@ class JuLikeFlowManager {
             .flatMap {
                 val results = it.filter { !it.isSuccess }
                 if (results.isNotEmpty()) {
-                    println("Found ${results.size} errors")
+                    log.info("Found ${results.size} errors")
                     Mono.just(generateWorkbook(rowDefList, results))
                 } else {
                     Mono.empty()
@@ -182,10 +196,10 @@ class JuLikeFlowManager {
                                               uploadImage: (UploadImageRequest<T>) -> Mono<String>,
                                               updateItemApplyFormDetail: (UpdateItemApplyFormDetailRequest<T>) -> Mono<Void>): Mono<Void> {
         val itemId = rowDefList.first().get(item)
-        println("Updating item $itemId ${index + 1}/$totalCount")
+        log.info("Updating item $itemId ${index + 1}/$totalCount")
         return getUploadImageRequestFlux(zipImagesMap, rowDefList, item)
             .concatMap { uploadImageRequest ->
-                println("Uploading ${uploadImageRequest.image.body?.filename} for ${uploadImageRequest.rowDef.name} ($itemId)")
+                log.info("Uploading ${uploadImageRequest.image.body?.filename} for ${uploadImageRequest.rowDef.name} ($itemId)")
                 uploadImage(uploadImageRequest).map { Pair(uploadImageRequest.rowDef, it) }
             }
             .collectList()
@@ -202,7 +216,6 @@ class JuLikeFlowManager {
     private fun shouldUploadImage(value: String): Boolean = value.startsWith(ZIP_PROTOCOL) || value.startsWith("http://") || value.startsWith("https://")
 
     private fun loadImage(zipImagesMap: Map<String, ByteArray>?, value: String): Mono<HttpEntity<NamedByteArrayResource>> {
-        // TODO(coeuvre): Handle http images
         if (value.startsWith(ZIP_PROTOCOL)) {
             return Mono.create<HttpEntity<NamedByteArrayResource>> { sink ->
                 val filename = value.substring(ZIP_PROTOCOL.length)
@@ -219,6 +232,24 @@ class JuLikeFlowManager {
 
                 sink.success(HttpEntity(NamedByteArrayResource(filename, fileContent), headers))
             }
+        } else if (value.startsWith("http://") || value.startsWith("https://")) {
+            log.info("Downloading image from $value")
+            val uri = URI(value)
+            return WebClient.create().get().uri(uri).exchange()
+                .flatMap { response ->
+                    if (!response.statusCode().is2xxSuccessful) {
+                        throw IllegalStateException("无法加载图片 $value")
+                    }
+
+                    val headers = response.headers().asHttpHeaders()
+                    if (!(headers.contentType?.includes(MediaType.IMAGE_JPEG) == true || headers.contentType?.includes(MediaType.IMAGE_PNG) == true)) {
+                        throw IllegalArgumentException("只支持 PNG 和 JPG 图片格式")
+                    }
+
+                    response.bodyToMono<ByteArray>().map { byteArray ->
+                        HttpEntity(NamedByteArrayResource(uri.path, byteArray), headers)
+                    }
+                }
         } else {
             throw UnsupportedOperationException("非法图片路径 $value")
         }

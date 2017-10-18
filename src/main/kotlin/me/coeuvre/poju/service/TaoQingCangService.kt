@@ -62,14 +62,7 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
             pageSize = 0
         )
 
-        return juLikeFlowManager.exportItemApplyFormDetails({
-            taoQingCangClient.queryItems(queryItemsRequestTemplate).map {
-                println("Activity(${request.activityEnterId}) has ${it.totalItem} items")
-                it.totalItem
-            }
-        }, { queryPagedItemsRequest ->
-            println("Fetching page ${queryPagedItemsRequest.currentPage}/${queryPagedItemsRequest.pageCount}")
-
+        return juLikeFlowManager.exportItemApplyFormDetails({ queryPagedItemsRequest ->
             taoQingCangClient.queryItems(queryItemsRequestTemplate.copy(
                 currentPage = queryPagedItemsRequest.currentPage,
                 pageSize = queryPagedItemsRequest.pageSize
@@ -82,7 +75,6 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
             }
         }, { getItemApplyFormDetailRequest ->
             val item = getItemApplyFormDetailRequest.item
-            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentCount}/${getItemApplyFormDetailRequest.totalCount})")
             taoQingCangClient.getItemApplyFormDetail(GetItemApplyFormDetailRequest(
                 tbToken = request.tbToken,
                 cookie2 = request.cookie2,

@@ -73,14 +73,7 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
             pageSize = 0
         )
 
-        return manager.exportItemApplyFormDetails({
-            client.queryItems(queryItemsRequestTemplate).map {
-                println("Activity(${request.activityEnterId}) has ${it.totalItem} items")
-                it.totalItem
-            }
-        }, { queryPagedItemsRequest ->
-            println("Fetching page ${queryPagedItemsRequest.currentPage}/${queryPagedItemsRequest.pageCount}")
-
+        return manager.exportItemApplyFormDetails({ queryPagedItemsRequest ->
             client.queryItems(queryItemsRequestTemplate.copy(
                 currentPage = queryPagedItemsRequest.currentPage,
                 pageSize = queryPagedItemsRequest.pageSize)
@@ -93,7 +86,6 @@ class JuService(@Autowired val manager: JuLikeFlowManager, @Autowired val client
             }
         }, { getItemApplyFormDetailRequest ->
             val item = getItemApplyFormDetailRequest.item
-            println("Fetching item ${item.juId} (${getItemApplyFormDetailRequest.currentCount}/${getItemApplyFormDetailRequest.totalCount})")
             client.getItemApplyFormDetail(request.cookie2, request.tbToken, request.sg, item.juId)
                 .map { GetItemApplyFormDetailResponse(it, true, null) }
                 .onErrorResume { e ->

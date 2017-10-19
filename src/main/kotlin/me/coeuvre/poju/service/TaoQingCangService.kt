@@ -81,7 +81,6 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
                 sg = request.sg,
                 juId = item.juId
             )).map { GetItemApplyFormDetailResponse(it, true, null) }.onErrorResume { e ->
-                println(e.message)
                 Mono.just(GetItemApplyFormDetailResponse(
                     itemApplyFormDetail = ItemApplyFormDetail.empty.copy(juId = item.juId, itemId = item.itemId, shortTitle = item.itemName),
                     isSuccess = false,

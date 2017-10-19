@@ -35,37 +35,13 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
         val picZip: Part?
     )
 
-    @PostMapping("/api/tqc/UpdateActivityItems")
+    @PostMapping("/api/tqc/UpdateItemApplyFormDetails")
     fun updateActivityItems(@ModelAttribute modelMono: Mono<UpdateActivityItemsModel>): Mono<ResponseEntity<ByteArray>> {
         return modelMono.flatMap { model ->
             model.workbook.getContentAsByteArray().map { XSSFWorkbook(ByteArrayInputStream(it)) }
                 .flatMap { workbook ->
                     if (model.picZip != null) {
-                        model.picZip.getContentAsByteArray().map {
-                            val zipInputStream = ZipInputStream(ByteArrayInputStream(it))
-                            val buffer = ByteArray(4096)
-                            val byteArrayMap = mutableMapOf<String, ByteArray>()
-
-                            // Iterate over Zip entries
-                            while (true) {
-                                val zipEntry = zipInputStream.nextEntry ?: break
-                                val byteArrayOutputStream = ByteArrayOutputStream()
-
-                                // Read Zip entry content into ByteArray
-                                while (true) {
-                                    val len = zipInputStream.read(buffer)
-                                    if (len <= 0) {
-                                        break; }
-                                    byteArrayOutputStream.write(buffer, 0, len)
-                                }
-                                byteArrayOutputStream.close()
-
-                                byteArrayMap.put(zipEntry.name, byteArrayOutputStream.toByteArray())
-                            }
-                            zipInputStream.closeEntry()
-                            zipInputStream.close()
-                            Pair(workbook, byteArrayMap)
-                        }
+                        model.picZip.getContentAsByteArray().map { Pair(workbook, Utils.readContentMapFromZipByteArray(it)) }
                     } else {
                         Mono.just(Pair(workbook, null))
                     }

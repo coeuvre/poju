@@ -88,6 +88,12 @@ class JuLikeFlowManager {
                             val currentCount = (queryItemsResponse.currentPage - 1) * pageSize + index + 1
                             log.info("Fetching item ($currentCount/$totalCount)")
                             getItemApplyFormDetail(GetItemApplyFormDetailRequest(currentCount, totalCount, item))
+                                .map {
+                                    if (!it.isSuccess) {
+                                        log.error(it.errorMessage)
+                                    }
+                                    it
+                                }
                         }
                     }
             }
@@ -176,7 +182,7 @@ class JuLikeFlowManager {
                 updateItemApplyFormDetail(index, totalCount, zipImagesMap, item, rowDefList, uploadImage, updateItemApplyFormDetail)
                     .map { GetItemApplyFormDetailResponse(item, true, null) }
                     .onErrorResume { e ->
-                        log.error(e.message, e)
+                        log.error(e.message)
                         Mono.just(GetItemApplyFormDetailResponse(item, false, e.message))
                     }
             }

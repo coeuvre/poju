@@ -31,7 +31,7 @@ data class UpdateItemApplyFormDetailsRequest(
     val tbToken: String,
     val sg: String,
     val workbook: XSSFWorkbook,
-    val zipImagesMap: Map<String, ByteArray>
+    val zipImagesMap: Map<String, ByteArray>?
 )
 
 @Service
@@ -116,7 +116,8 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
 
     fun updateItemApplyFormDetails(request: UpdateItemApplyFormDetailsRequest): Mono<XSSFWorkbook> {
         return juLikeFlowManager.updateItemApplyFormDetails(request.workbook, request.zipImagesMap, rowDefs, ItemApplyFormDetail.empty, { uploadImageRequest ->
-            Mono.just(uploadImageRequest.image.body?.filename.orEmpty())
+            Mono.error(UnsupportedOperationException("上传图片暂未实现"))
+//            Mono.just(uploadImageRequest.image.body?.filename.orEmpty())
         }, { updateItemApplyFormDetailRequest ->
             juClient.submitItemApplyForm(request.cookie2, request.tbToken, request.sg, updateItemApplyFormDetailRequest.item)
         })

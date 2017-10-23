@@ -63,7 +63,8 @@ data class ItemApplyFormDetail(
     val itemHiddenSearchTag: String,
     val payPostage: String,
     val limitNum: String,
-    val itemBrandName: String
+    val itemBrandName: String,
+    val itemBrandLogo: String
 ) {
     companion object {
         val empty: ItemApplyFormDetail = ItemApplyFormDetail(
@@ -84,7 +85,8 @@ data class ItemApplyFormDetail(
             itemHiddenSearchTag = "",
             payPostage = "",
             limitNum = "",
-            itemBrandName = ""
+            itemBrandName = "",
+            itemBrandLogo = ""
         )
     }
 }
@@ -118,6 +120,15 @@ data class UploadImageResponse(
     val status: Int,
     val message: String?,
     val url: String?
+)
+
+data class UploadItemBrandLogoRequest(
+    val tbToken: String,
+    val cookie2: String,
+    val sg: String,
+    val platformId: Long,
+    val itemId: Long,
+    val pic: HttpEntity<NamedByteArrayResource>
 )
 
 /**
@@ -188,7 +199,8 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
                         itemHiddenSearchTag = form.select("#itemHiddenSearchTag").`val`(),
                         payPostage = form.select("#payPostage").`val`(),
                         limitNum = form.select("#limitNum").`val`(),
-                        itemBrandName = form.select("#itemBrandName").`val`()
+                        itemBrandName = form.select("#itemBrandName").`val`(),
+                        itemBrandLogo = form.select("#itemBrandLogo").`val`()
                     )
                 }
             }
@@ -234,6 +246,13 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
     fun uploadItemTaobaoAppMaterial(request: UploadItemTaobaoAppMaterialRequest): Mono<String> {
         val multipartData = LinkedMultiValueMap<String, Any>()
         multipartData.add("wise", "hyalineImgPic_${request.platformId}_${request.itemId}_${request.activityEnterId}_0_0_0")
+        multipartData.add("itemPicFile", request.pic)
+        return uploadImage(request.tbToken, request.cookie2, request.sg, multipartData)
+    }
+
+    fun uploadItemBrandLogo(request: UploadItemBrandLogoRequest): Mono<String> {
+        val multipartData = LinkedMultiValueMap<String, Any>()
+        multipartData.add("wise", "itemBrandLogo_${request.platformId}_${request.itemId}_${request.itemId}_0_0_0")
         multipartData.add("itemPicFile", request.pic)
         return uploadImage(request.tbToken, request.cookie2, request.sg, multipartData)
     }

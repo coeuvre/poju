@@ -47,7 +47,8 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
         RowDef("设置隐藏选项/itemHiddenSearchTag", { it.itemHiddenSearchTag }, { item, value -> item.copy(itemHiddenSearchTag = value) }),
         RowDef("运费/payPostage", { it.payPostage }, { item, value -> item.copy(payPostage = value) }),
         RowDef("每个ID限购/limitNum", { it.limitNum }, { item, value -> item.copy(limitNum = value) }),
-        RowDef("品牌名称/itemBrandName", { it.itemBrandName }, { item, value -> item.copy(itemBrandName = value) })
+        RowDef("品牌名称/itemBrandName", { it.itemBrandName }, { item, value -> item.copy(itemBrandName = value) }),
+        RowDef("品牌Logo/itemBrandLogo", { it.itemBrandLogo }, { item, value -> item.copy(itemBrandLogo = value) })
     )
 
     fun exportItemApplyFormDetails(request: ExportActivityItemsRequest): Mono<XSSFWorkbook> {
@@ -107,7 +108,7 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
                     itemId = item.itemId,
                     pic = uploadImageRequest.image
                 ))
-                name.contains("itemTaobaoMaterial") -> taoQingCangClient.uploadItemTaobaoAppMaterial(UploadItemTaobaoAppMaterialRequest(
+                name.contains("itemTaobaoAppMaterial") -> taoQingCangClient.uploadItemTaobaoAppMaterial(UploadItemTaobaoAppMaterialRequest(
                     tbToken = request.tbToken,
                     cookie2 = request.cookie2,
                     sg = request.sg,
@@ -116,7 +117,15 @@ class TaoQingCangService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
                     activityEnterId = item.activityEnterId,
                     pic = uploadImageRequest.image
                 ))
-                else -> Mono.empty()
+                name.contains("itemBrandLogo") -> taoQingCangClient.uploadItemBrandLogo(UploadItemBrandLogoRequest(
+                    tbToken = request.tbToken,
+                    cookie2 = request.cookie2,
+                    sg = request.sg,
+                    platformId = item.platformId,
+                    itemId = item.itemId,
+                    pic = uploadImageRequest.image
+                ))
+                else -> Mono.error(IllegalArgumentException("字段 $name 不支持上传图片"))
             }
         },
         { updateItemApplyFormDetailRequest ->

@@ -150,6 +150,13 @@ data class UploadImageResponse(
     val url: String?
 )
 
+data class PublishItemRequest(
+    val tbToken: String,
+    val cookie2: String,
+    val sg: String,
+    val juId: String
+)
+
 @Service
 class JuClient(@Autowired private val objectMapper: ObjectMapper) {
 
@@ -220,6 +227,14 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
                         itemApplyFormDetail
                     }
             }
+    }
+
+    fun publishItem(request: PublishItemRequest): Mono<Void> {
+        val builder = UriComponentsBuilder.fromHttpUrl("https://freeway.ju.taobao.com/tg/ItemPublishError")
+        builder.queryParam("_tb_token_", request.tbToken)
+        builder.queryParam("juId", request.juId)
+        return doGetRequest(request.cookie2, request.tbToken, request.sg, builder.build().encode().toUri())
+            .then()
     }
 
     fun submitItemApplyForm(cookie2: String, tbToken: String, sg: String, itemApplyFormDetail: ItemApplyFormDetail): Mono<Void> {

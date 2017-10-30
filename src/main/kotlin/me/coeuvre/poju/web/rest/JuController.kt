@@ -2,6 +2,7 @@ package me.coeuvre.poju.web.rest
 
 import me.coeuvre.poju.service.ExportItemApplyFormDetailsRequest
 import me.coeuvre.poju.service.JuService
+import me.coeuvre.poju.service.PublishItemsRequest
 import me.coeuvre.poju.service.UpdateItemApplyFormDetailsRequest
 import me.coeuvre.poju.util.Utils
 import me.coeuvre.poju.util.getContentAsByteArray
@@ -85,6 +86,13 @@ class JuController(@Autowired val juService: JuService) {
 
                     ResponseEntity<ByteArray>(HttpStatus.OK)
                 }
+        }
+    }
+
+    @PostMapping("/api/ju/PublishItems")
+    fun publishItems(@RequestBody requestMono: Mono<PublishItemsRequest>): Mono<Void> {
+        return requestMono.flatMap { request ->
+            juService.publishItems(request)
         }
     }
 }

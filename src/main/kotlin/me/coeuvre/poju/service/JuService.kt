@@ -6,6 +6,7 @@ import me.coeuvre.poju.manager.QueryPagedItemsResponse
 import me.coeuvre.poju.manager.RowDef
 import me.coeuvre.poju.thirdparty.ju.*
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.stereotype.Service
@@ -34,8 +35,19 @@ data class UpdateItemApplyFormDetailsRequest(
     val zipImagesMap: Map<String, ByteArray>?
 )
 
+data class PublishItemsRequest(
+    val cookie2: String,
+    val tbToken: String,
+    val sg: String,
+    val activityEnterId: String,
+    val itemStatusCode: String,
+    val actionStatus: String
+)
+
 @Service
 class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired val juClient: JuClient) {
+
+    val log = LoggerFactory.getLogger(JuService::class.java)
 
     private val rowDefs = listOf(
         RowDef<ItemApplyFormDetail>("juId", { it.juId }, { item, value -> item.copy(juId = value) }),
@@ -133,6 +145,31 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
         }, { updateItemApplyFormDetailRequest ->
             juClient.submitItemApplyForm(request.cookie2, request.tbToken, request.sg, updateItemApplyFormDetailRequest.item)
         })
+    }
+
+    fun publishItems(request: PublishItemsRequest): Mono<Void> {
+        log.info("Starting publish items")
+        return juClient.queryItems(QueryItemsRequest(request.cookie2, request.tbToken, request.sg, request.activityEnterId, request.itemStatusCode, request.actionStatus, 1, 0))
+            .map { it.totalItem }
+            .flatMapMany { totalCount ->
+                log.info("Publishing $totalCount items")
+                val pageSize = 20
+                val pageCount = Math.ceil(totalCount * 1.0 / pageSize).toInt()
+                (1..pageCount).map { currentPage ->
+                    QueryItemsRequest(request.cookie2, request.tbToken, request.sg, request.activityEnterId, request.itemStatusCode, request.actionStatus, currentPage, pageSize)
+                }.toFlux().flatMapSequential { queryItemsRequest ->
+                    log.info("Fetching page ${queryItemsRequest.currentPage}/$pageCount")
+                    juClient.queryItems(queryItemsRequest).map { Triple(totalCount, queryItemsRequest, it) }
+                }
+            }
+            .flatMapSequential { (totalCount, queryItemsRequest, queryItemsResponse) ->
+                queryItemsResponse.itemList.withIndex().map { (index, item) -> Triple(index + 1 + (queryItemsRequest.currentPage - 1) * queryItemsRequest.pageSize, totalCount, item) }.toFlux()
+            }
+            .flatMapSequential({ (index, count, item) ->
+                log.info("Publishing item $index/$count")
+                juClient.publishItem(PublishItemRequest(request.tbToken, request.cookie2, request.sg, item.juId))
+            }, 1)
+            .then()
     }
 
     data class DownloadImageResult(

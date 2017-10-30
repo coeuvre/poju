@@ -166,8 +166,9 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
                 queryItemsResponse.itemList.withIndex().map { (index, item) -> Triple(index + 1 + (queryItemsRequest.currentPage - 1) * queryItemsRequest.pageSize, totalCount, item) }.toFlux()
             }
             .flatMapSequential({ (index, count, item) ->
-                log.info("Publishing item $index/$count")
+                log.info("Publishing item ${item.juId} ($index/$count)")
                 juClient.publishItem(PublishItemRequest(request.tbToken, request.cookie2, request.sg, item.juId))
+                    .onErrorResume { e -> log.error(e.message); Mono.empty() }
             }, 1)
             .then()
     }

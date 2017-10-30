@@ -231,9 +231,34 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
 
     fun publishItem(request: PublishItemRequest): Mono<Void> {
         val builder = UriComponentsBuilder.fromHttpUrl("https://freeway.ju.taobao.com/tg/ItemPublishError")
+        builder.queryParam("juid", request.juId)
         builder.queryParam("_tb_token_", request.tbToken)
-        builder.queryParam("juId", request.juId)
         return doGetRequest(request.cookie2, request.tbToken, request.sg, builder.build().encode().toUri())
+            .flatMap { response ->
+                if (response.statusCode().is3xxRedirection) {
+                    val location = response.headers().header("Location")[0]
+                    if (location.contains("seller_error")) {
+                        doGetRequest(request.cookie2, request.tbToken, request.sg, URI.create(location)).flatMap { r ->
+                            r.bodyToMono<String>().map { body ->
+                                val doc = Jsoup.parse(body)
+                                val message = doc.select(".state-notice").text()
+                                throw IllegalArgumentException(message)
+                            }
+                        }
+                    } else {
+                        Mono.empty()
+                    }
+                } else if (response.statusCode().is2xxSuccessful) {
+                    response.bodyToMono<String>().map { body ->
+                        val doc = Jsoup.parse(body)
+                        val rows = doc.select(".exception_main_info").select("tbody").select("tr")
+                        val errors = rows.map { row -> row.select("td").first().text() }
+                        throw IllegalArgumentException(errors.joinToString(", "))
+                    }
+                } else {
+                    throw IllegalStateException()
+                }
+            }
             .then()
     }
 

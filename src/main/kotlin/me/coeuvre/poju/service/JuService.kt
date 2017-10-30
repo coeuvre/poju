@@ -116,8 +116,20 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
 
     fun updateItemApplyFormDetails(request: UpdateItemApplyFormDetailsRequest): Mono<XSSFWorkbook> {
         return juLikeFlowManager.updateItemApplyFormDetails(request.workbook, request.zipImagesMap, rowDefs, ItemApplyFormDetail.empty, { uploadImageRequest ->
-            Mono.error(UnsupportedOperationException("上传图片暂未实现"))
-//            Mono.just(uploadImageRequest.image.body?.filename.orEmpty())
+            val name = uploadImageRequest.rowDef.name
+            val item = uploadImageRequest.item
+            when {
+                name.contains("itemTaobaoAppMaterial") -> juClient.uploadItemTaobaoAppMaterial(UploadItemTaobaoAppMaterialRequest(
+                    tbToken = request.tbToken,
+                    cookie2 = request.cookie2,
+                    sg = request.sg,
+                    platformId = item.platformId,
+                    itemId = item.itemId,
+                    activityEnterId = item.activityEnterId,
+                    pic = uploadImageRequest.image
+                ))
+                else -> Mono.error(IllegalArgumentException("字段 $name 不支持上传图片"))
+            }
         }, { updateItemApplyFormDetailRequest ->
             juClient.submitItemApplyForm(request.cookie2, request.tbToken, request.sg, updateItemApplyFormDetailRequest.item)
         })

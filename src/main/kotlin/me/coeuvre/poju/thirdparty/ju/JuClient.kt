@@ -4,10 +4,13 @@ import com.fasterxml.jackson.annotation.*
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
 import com.fasterxml.jackson.module.kotlin.readValue
+import me.coeuvre.poju.util.NamedByteArrayResource
 import org.jsoup.Jsoup
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.http.HttpEntity
 import org.springframework.stereotype.Service
 import org.springframework.util.LinkedMultiValueMap
+import org.springframework.util.MultiValueMap
 import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClient
@@ -131,6 +134,22 @@ data class SubmitItemApplyFormResponse(
     val errorInfo: String?
 )
 
+data class UploadItemTaobaoAppMaterialRequest(
+    val tbToken: String,
+    val cookie2: String,
+    val sg: String,
+    val platformId: String,
+    val itemId: String,
+    val activityEnterId: String,
+    val pic: HttpEntity<NamedByteArrayResource>
+)
+
+data class UploadImageResponse(
+    val status: Int,
+    val message: String?,
+    val url: String?
+)
+
 @Service
 class JuClient(@Autowired private val objectMapper: ObjectMapper) {
 
@@ -245,4 +264,29 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
             .exchange()
 
     }
+
+    fun uploadItemTaobaoAppMaterial(request: UploadItemTaobaoAppMaterialRequest): Mono<String> {
+        val multipartData = LinkedMultiValueMap<String, Any>()
+        multipartData.add("wise", "hyalineImgPic_${request.platformId}_${request.itemId}_${request.activityEnterId}_0_0_0")
+        multipartData.add("itemPicFile", request.pic)
+        return uploadImage(request.tbToken, request.cookie2, request.sg, multipartData)
+    }
+
+    private fun uploadImage(tbToken: String, cookie2: String, sg: String, multipartData: MultiValueMap<String, *>): Mono<String> =
+        WebClient.create()
+            .post()
+            .uri("https://freeway.ju.taobao.com/tg/json/uploadImageLocal.do?_input_charset=utf-8")
+            .cookie("_tb_token_", tbToken)
+            .cookie("cookie2", cookie2)
+            .cookie("sg", sg)
+            .body(BodyInserters.fromMultipartData(multipartData))
+            .retrieve()
+            .bodyToMono(String::class.java)
+            .map { body ->
+                val response = objectMapper.readValue(body, UploadImageResponse::class.java)
+                if (response.status != 1) {
+                    throw IllegalStateException(response.message)
+                }
+                response.url!!
+            }
 }

@@ -158,7 +158,7 @@ data class PublishItemRequest(
 )
 
 @Service
-class JuClient(@Autowired private val objectMapper: ObjectMapper) {
+class JuClient @Autowired constructor(private val objectMapper: ObjectMapper, private val webClient: WebClient) {
 
     fun queryItems(request: QueryItemsRequest): Mono<QueryItemsResponse> {
         val builder = UriComponentsBuilder.fromHttpUrl("https://freeway.ju.taobao.com/tg/json/queryItems.htm")
@@ -271,8 +271,7 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
         multipartData.add("event_submit_do_update", "true")
         multipartData.add("_tb_token_", tbToken)
 
-        return WebClient.create()
-            .post()
+        return webClient.post()
             .uri("https://freeway.ju.taobao.com/tg/json/queryItems.htm?_input_charset=UTF-8")
             .cookie("_tb_token_", tbToken)
             .cookie("cookie2", cookie2)
@@ -295,8 +294,7 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
     }
 
     private fun doGetRequest(cookie2: String, tbToken: String, sg: String, uri: URI): Mono<ClientResponse> {
-        return WebClient.create()
-            .get()
+        return webClient.get()
             .uri(uri)
             .cookie("_tb_token_", tbToken)
             .cookie("cookie2", cookie2)
@@ -313,8 +311,7 @@ class JuClient(@Autowired private val objectMapper: ObjectMapper) {
     }
 
     private fun uploadImage(tbToken: String, cookie2: String, sg: String, multipartData: MultiValueMap<String, *>): Mono<String> =
-        WebClient.create()
-            .post()
+        webClient.post()
             .uri("https://freeway.ju.taobao.com/tg/json/uploadImageLocal.do?_input_charset=utf-8")
             .cookie("_tb_token_", tbToken)
             .cookie("cookie2", cookie2)

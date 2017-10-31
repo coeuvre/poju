@@ -6,6 +6,7 @@ import org.apache.poi.ss.usermodel.FillPatternType
 import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.HttpEntity
 import org.springframework.http.HttpHeaders
@@ -60,7 +61,7 @@ data class UploadImageRequest<T>(
 const val ZIP_PROTOCOL = "zip://"
 
 @Component
-class JuLikeFlowManager {
+class JuLikeFlowManager @Autowired constructor(val webClient: WebClient) {
     val log = LoggerFactory.getLogger(JuLikeFlowManager::class.java)
 
     fun <I, D> exportItemApplyFormDetails(queryPagedItems: (QueryPagedItemsRequest) -> Mono<QueryPagedItemsResponse<I>>,
@@ -242,7 +243,8 @@ class JuLikeFlowManager {
         } else if (value.startsWith("http://") || value.startsWith("https://")) {
             log.info("Downloading image from $value")
             val uri = URI(value)
-            return WebClient.create().get().uri(uri).exchange()
+            return webClient.get()
+                .uri(uri).exchange()
                 .flatMap { response ->
                     if (!response.statusCode().is2xxSuccessful) {
                         throw IllegalStateException("无法加载图片 $value")

@@ -137,11 +137,10 @@ data class UploadItemBrandLogoRequest(
  * 登录信息由 cookie: _tb_token_, cookie2, sg 决定
  */
 @Service
-class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
+class TaoQingCangClient @Autowired constructor(val objectMapper: ObjectMapper, val webClient: WebClient) {
 
     fun queryItems(request: QueryItemsRequest): Mono<QueryItemsResponse> {
-        return WebClient.create()
-            .get()
+        return webClient.get()
             .uri("https://tqcfreeway.ju.taobao.com/tg/json/queryItems.htm?" +
                 "_tb_token_=${request.tbToken}&" +
                 "_input_charset=UTF-8&" +
@@ -165,8 +164,7 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
     }
 
     fun getItemApplyFormDetail(request: GetItemApplyFormDetailRequest): Mono<ItemApplyFormDetail> {
-        return WebClient.create()
-            .get()
+        return webClient.get()
             .uri("https://tqcfreeway.ju.taobao.com/tg/itemApplyFormDetail.htm?juId=${request.juId}")
             .cookie("_tb_token_", request.tbToken)
             .cookie("cookie2", request.cookie2)
@@ -218,8 +216,7 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
         params.forEach { (key, value) -> multipartData.add(key, value) }
         multipartData.addAll(additionParams)
 
-        return WebClient.create()
-            .post()
+        return webClient.post()
             .uri("https://tqcfreeway.ju.taobao.com/tg/itemApplyResult.htm?action=/tg/ItemPostAction&event_submit_do_update=true&_input_charset=UTF-8")
             .cookie("_tb_token_", tbToken)
             .cookie("cookie2", cookie2)
@@ -258,8 +255,7 @@ class TaoQingCangClient(@Autowired val objectMapper: ObjectMapper) {
     }
 
     private fun uploadImage(tbToken: String, cookie2: String, sg: String, multipartData: MultiValueMap<String, *>): Mono<String> =
-        WebClient.create()
-            .post()
+        webClient.post()
             .uri("https://tqcfreeway.ju.taobao.com/tg/json/uploadImageLocal.do?_input_charset=utf-8")
             .cookie("_tb_token_", tbToken)
             .cookie("cookie2", cookie2)

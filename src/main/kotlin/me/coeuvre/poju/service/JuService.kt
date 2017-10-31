@@ -45,7 +45,7 @@ data class PublishItemsRequest(
 )
 
 @Service
-class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired val juClient: JuClient) {
+class JuService @Autowired constructor(val juLikeFlowManager: JuLikeFlowManager, val juClient: JuClient, val webClient: WebClient) {
 
     val log = LoggerFactory.getLogger(JuService::class.java)
 
@@ -207,8 +207,8 @@ class JuService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired 
             .flatMapSequential({ (index, articleNo) ->
                 val url = "http://pic.shopadidas.cn/product/$articleNo/touming.png"
                 println("Downloading ${index + 1}/$totalCount ($url)")
-                WebClient.create(url)
-                    .get()
+                webClient.get()
+                    .uri(url)
                     .exchange()
                     .flatMap { response ->
                         if (!response.statusCode().is2xxSuccessful) {

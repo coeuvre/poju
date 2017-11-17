@@ -90,9 +90,15 @@ class JuController(@Autowired val juService: JuService) {
     }
 
     @PostMapping("/api/ju/PublishItems")
-    fun publishItems(@RequestBody requestMono: Mono<PublishItemsRequest>): Mono<Void> {
+    fun publishItems(@RequestBody requestMono: Mono<PublishItemsRequest>): Mono<ResponseEntity<ByteArray>> {
         return requestMono.flatMap { request ->
             juService.publishItems(request)
+        }.map { errorWorkbook: XSSFWorkbook? ->
+            if (errorWorkbook != null) {
+                Utils.createExcelResponseEntity(errorWorkbook, "JU_PublishItemsError")
+            } else {
+                ResponseEntity.ok().body(ByteArray(0))
+            }
         }
     }
 }

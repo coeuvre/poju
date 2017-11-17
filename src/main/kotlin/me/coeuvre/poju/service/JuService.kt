@@ -5,6 +5,9 @@ import me.coeuvre.poju.manager.JuLikeFlowManager
 import me.coeuvre.poju.manager.QueryPagedItemsResponse
 import me.coeuvre.poju.manager.RowDef
 import me.coeuvre.poju.thirdparty.ju.*
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.ss.usermodel.Workbook
+import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
@@ -14,6 +17,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.bodyToMono
 import reactor.core.publisher.Mono
 import reactor.core.publisher.toFlux
+import java.awt.Color
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -147,7 +151,7 @@ class JuService @Autowired constructor(val juLikeFlowManager: JuLikeFlowManager,
         })
     }
 
-    fun publishItems(request: PublishItemsRequest): Mono<Void> {
+    fun publishItems(request: PublishItemsRequest): Mono<XSSFWorkbook?> {
         log.info("Starting publish items")
         return juClient.queryItems(QueryItemsRequest(request.cookie2, request.tbToken, request.sg, request.activityEnterId, request.itemStatusCode, request.actionStatus, 1, 0))
             .map { it.totalItem }
@@ -168,9 +172,57 @@ class JuService @Autowired constructor(val juLikeFlowManager: JuLikeFlowManager,
             .flatMapSequential({ (index, count, item) ->
                 log.info("Publishing item ${item.juId} ($index/$count)")
                 juClient.publishItem(PublishItemRequest(request.tbToken, request.cookie2, request.sg, item.juId))
-                    .onErrorResume { e -> log.error(e.message); Mono.empty() }
+                    .map { _ -> Pair<QueryItemsResponseItem, String?>(item, null) }
+                    .onErrorResume { e -> log.error(e.message); Mono.just(Pair(item, e.message)) }
             }, 1)
-            .then()
+            .collectList()
+            .map { list ->
+                val result = list.filter { it.second != null }
+
+                if (result.isEmpty()) {
+                    return@map null
+                }
+
+                val workbook = XSSFWorkbook()
+                val sheet = workbook.createSheet()
+
+                val titleStyle = workbook.createCellStyle()
+                val font = workbook.createFont()
+                font.setColor(XSSFColor(Color(255, 255, 255)))
+                titleStyle.setFont(font)
+                titleStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
+                titleStyle.setFillForegroundColor(XSSFColor(Color(0, 0, 0)))
+
+                val errorStyle = workbook.createCellStyle()
+                errorStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
+                errorStyle.setFillForegroundColor(XSSFColor(Color(255, 199, 206)))
+
+                // Create title row
+                val titleRow = sheet.createRow(0)
+                val rowDefs = listOf(
+                    RowDef<QueryItemsResponseItem>("juId", { it.juId }, { item, value -> item.copy(juId = value) }),
+                    RowDef("商品ID/itemId", { it.itemId }, { item, value -> item.copy(itemId = value) }),
+                    RowDef("商品名称/itemName", { it.itemName }, { item, value -> item.copy(itemName = value) })
+                )
+
+                rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
+                    val cell = titleRow.createCell(cellIndex)
+                    cell.cellStyle = titleStyle
+                    cell.setCellValue(rowDef.name)
+                }
+
+                result.withIndex().forEach { (rowIndex, result) ->
+                    val row = sheet.createRow(1 + rowIndex)
+                    rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
+                        val cell = row.createCell(cellIndex)
+                        cell.cellStyle = errorStyle
+                        cell.setCellValue(rowDef.get(result.first))
+                    }
+                    row.createCell(rowDefs.size).setCellValue(result.second)
+                }
+
+                workbook
+            }
     }
 
     data class DownloadImageResult(

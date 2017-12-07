@@ -4,20 +4,28 @@ import me.coeuvre.poju.manager.GetItemApplyFormDetailResponse
 import me.coeuvre.poju.manager.JuLikeFlowManager
 import me.coeuvre.poju.manager.QueryPagedItemsResponse
 import me.coeuvre.poju.manager.RowDef
+import me.coeuvre.poju.thirdparty.ju.PublishItemRequest
 import me.coeuvre.poju.thirdparty.taoqianggou.*
+import org.apache.poi.ss.usermodel.FillPatternType
+import org.apache.poi.xssf.usermodel.XSSFColor
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toFlux
+import java.awt.Color
 
 @Service
 class TaoQiangGouService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @Autowired val taoQiangGouClient: TaoQiangGouClient) {
+    val log = LoggerFactory.getLogger(JuService::class.java)
+
     private val rowDefs: List<RowDef<ItemApplyFormDetail>> = listOf(
-        RowDef("juId", { it.juId.toString() }, { item, value -> item.copy(juId = value.toLong()) }),
-        RowDef("商品ID/itemId", { it.itemId.toString() }, { item, value -> item.copy(itemId = value.toLong()) }),
-        RowDef("platformId", { it.platformId.toString() }, { item, value -> item.copy(platformId = value.toLong()) }),
-        RowDef("活动ID/activityEnterId", { it.activityEnterId.toString() }, { item, value -> item.copy(activityEnterId = value.toLong()) }),
-        RowDef("activityId", { it.activityId.toString() }, { item, value -> item.copy(activityId = value.toLong()) }),
+        RowDef("juId", { it.juId }, { item, value -> item.copy(juId = value) }),
+        RowDef("商品ID/itemId", { it.itemId }, { item, value -> item.copy(itemId = value) }),
+        RowDef("platformId", { it.platformId }, { item, value -> item.copy(platformId = value) }),
+        RowDef("活动ID/activityEnterId", { it.activityEnterId }, { item, value -> item.copy(activityEnterId = value) }),
+        RowDef("activityId", { it.activityId }, { item, value -> item.copy(activityId = value) }),
         RowDef("报名方式/skuType", { it.skuType }, { item, value -> item.copy(skuType = value) }),
         RowDef("活动价格/activityPrice", { it.activityPrice }, { item, value -> item.copy(activityPrice = value) }),
         RowDef("priceType", { it.priceType }, { item, value -> item.copy(priceType = value) }),
@@ -105,4 +113,78 @@ class TaoQiangGouService(@Autowired val juLikeFlowManager: JuLikeFlowManager, @A
             taoQiangGouClient.submitItemApplyForm(request.tbToken, request.cookie2, request.sg, updateItemApplyFormDetailRequest.item)
         }
     )
+
+    fun publishItems(request: PublishItemsRequest): Mono<XSSFWorkbook?> {
+        log.info("Starting publish items")
+        return taoQiangGouClient.queryItems(QueryItemsRequest(request.tbToken, request.cookie2, request.sg, request.activityEnterId, request.itemStatusCode, request.actionStatus, 1, 0))
+            .map { it.totalItem }
+            .flatMapMany { totalCount ->
+                log.info("Publishing $totalCount items")
+                val pageSize = 20
+                val pageCount = Math.ceil(totalCount * 1.0 / pageSize).toInt()
+                (1..pageCount).map { currentPage ->
+                    QueryItemsRequest(request.tbToken, request.cookie2, request.sg, request.activityEnterId, request.itemStatusCode, request.actionStatus, currentPage, pageSize)
+                }.toFlux().flatMapSequential { queryItemsRequest ->
+                    log.info("Fetching page ${queryItemsRequest.currentPage}/$pageCount")
+                    taoQiangGouClient.queryItems(queryItemsRequest).map { Triple(totalCount, queryItemsRequest, it) }
+                }
+            }
+            .flatMapSequential { (totalCount, queryItemsRequest, queryItemsResponse) ->
+                queryItemsResponse.itemList.withIndex().map { (index, item) -> Triple(index + 1 + (queryItemsRequest.currentPage - 1) * queryItemsRequest.pageSize, totalCount, item) }.toFlux()
+            }
+            .flatMapSequential({ (index, count, item) ->
+                log.info("Publishing item ${item.juId} ($index/$count)")
+                taoQiangGouClient.publishItem(PublishItemRequest(request.tbToken, request.cookie2, request.sg, item.juId))
+                    .map { _ -> Pair<Item, String?>(item, null) }
+                    .onErrorResume { e -> log.error(e.message); Mono.just(Pair(item, e.message)) }
+            }, 1)
+            .collectList()
+            .map { list ->
+                val result = list.filter { it.second != null }
+
+                if (result.isEmpty()) {
+                    return@map null
+                }
+
+                val workbook = XSSFWorkbook()
+                val sheet = workbook.createSheet()
+
+                val titleStyle = workbook.createCellStyle()
+                val font = workbook.createFont()
+                font.setColor(XSSFColor(Color(255, 255, 255)))
+                titleStyle.setFont(font)
+                titleStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
+                titleStyle.setFillForegroundColor(XSSFColor(Color(0, 0, 0)))
+
+                val errorStyle = workbook.createCellStyle()
+                errorStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND)
+                errorStyle.setFillForegroundColor(XSSFColor(Color(255, 199, 206)))
+
+                // Create title row
+                val titleRow = sheet.createRow(0)
+                val rowDefs = listOf(
+                    RowDef<Item>("juId", { it.juId }, { item, value -> item.copy(juId = value) }),
+                    RowDef("商品ID/itemId", { it.itemId }, { item, value -> item.copy(itemId = value) }),
+                    RowDef("商品名称/itemName", { it.itemName }, { item, value -> item.copy(itemName = value) })
+                )
+
+                rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
+                    val cell = titleRow.createCell(cellIndex)
+                    cell.cellStyle = titleStyle
+                    cell.setCellValue(rowDef.name)
+                }
+
+                result.withIndex().forEach { (rowIndex, result) ->
+                    val row = sheet.createRow(1 + rowIndex)
+                    rowDefs.withIndex().forEach { (cellIndex, rowDef) ->
+                        val cell = row.createCell(cellIndex)
+                        cell.cellStyle = errorStyle
+                        cell.setCellValue(rowDef.get(result.first))
+                    }
+                    row.createCell(rowDefs.size).setCellValue(result.second)
+                }
+
+                workbook
+            }
+    }
 }

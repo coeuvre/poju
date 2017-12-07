@@ -17,7 +17,7 @@ data class QueryItemsRequest(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
-    val activityEnterId: Long,
+    val activityEnterId: String,
     val itemStatusCode: String,
     val actionStatus: String,
     val currentPage: Int,

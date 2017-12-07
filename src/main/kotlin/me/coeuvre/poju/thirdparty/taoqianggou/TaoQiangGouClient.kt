@@ -2,6 +2,7 @@ package me.coeuvre.poju.thirdparty.taoqianggou
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.convertValue
+import me.coeuvre.poju.thirdparty.ju.PublishItemRequest
 import me.coeuvre.poju.util.NamedByteArrayResource
 import org.jsoup.Jsoup
 import org.springframework.beans.factory.annotation.Autowired
@@ -11,13 +12,16 @@ import org.springframework.util.LinkedMultiValueMap
 import org.springframework.util.MultiValueMap
 import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.bodyToMono
+import org.springframework.web.util.UriComponentsBuilder
 import reactor.core.publisher.Mono
+import java.net.URI
 
 data class QueryItemsRequest(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
-    val activityEnterId: Long,
+    val activityEnterId: String,
     val itemStatusCode: String,
     val actionStatus: String,
     val currentPage: Int,
@@ -33,8 +37,8 @@ data class QueryItemsResponse(
 )
 
 data class Item(
-    val juId: Long,
-    val itemId: Long,
+    val juId: String,
+    val itemId: String,
     val itemName: String
 )
 
@@ -42,8 +46,8 @@ data class UploadItemMainPicRequest(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
-    val platformId: Long,
-    val itemId: Long,
+    val platformId: String,
+    val itemId: String,
     val pic: HttpEntity<NamedByteArrayResource>
 )
 
@@ -51,9 +55,9 @@ data class UploadItemTaobaoAppMaterialRequest(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
-    val platformId: Long,
-    val itemId: Long,
-    val activityEnterId: Long,
+    val platformId: String,
+    val itemId: String,
+    val activityEnterId: String,
     val pic: HttpEntity<NamedByteArrayResource>
 )
 
@@ -61,15 +65,15 @@ data class GetItemApplyFormDetailRequest(
     val tbToken: String,
     val cookie2: String,
     val sg: String,
-    val juId: Long
+    val juId: String
 )
 
 data class ItemApplyFormDetail(
-    val juId: Long,
-    val itemId: Long,
-    val platformId: Long,
-    val activityEnterId: Long,
-    val activityId: Long,
+    val juId: String,
+    val itemId: String,
+    val platformId: String,
+    val activityEnterId: String,
+    val activityId: String,
     val skuType: String,
     val activityPrice: String,
     val priceType: String,
@@ -85,11 +89,11 @@ data class ItemApplyFormDetail(
 ) {
     companion object {
         val empty: ItemApplyFormDetail = ItemApplyFormDetail(
-            juId = 0,
-            itemId = 0,
-            platformId = 0,
-            activityEnterId = 0,
-            activityId = 0,
+            juId = "",
+            itemId = "",
+            platformId = "",
+            activityEnterId = "",
+            activityId = "",
             skuType = "",
             activityPrice = "",
             priceType = "",
@@ -167,11 +171,11 @@ class TaoQiangGouClient @Autowired constructor(val objectMapper: ObjectMapper, v
                     val form = doc.select("#J_DetailForm")
 
                     ItemApplyFormDetail(
-                        juId = form.select("#juId").`val`().toLong(),
-                        itemId = form.select("#itemId").`val`().toLong(),
-                        platformId = form.select("#platformId").`val`().toLong(),
-                        activityEnterId = form.select("#activityEnterId").`val`().toLong(),
-                        activityId = form.select("#activityId").`val`().toLong(),
+                        juId = form.select("#juId").`val`(),
+                        itemId = form.select("#itemId").`val`(),
+                        platformId = form.select("#platformId").`val`(),
+                        activityEnterId = form.select("#activityEnterId").`val`(),
+                        activityId = form.select("#activityId").`val`(),
                         skuType = form.select("""input[name="skuType"][checked]""").`val`(),
                         activityPrice = form.select("#activityPrice").`val`(),
                         priceType = form.select("""input[name="priceType"][checked]""").`val`(),
@@ -248,4 +252,48 @@ class TaoQiangGouClient @Autowired constructor(val objectMapper: ObjectMapper, v
                 }
                 response.url!!
             }
+
+    fun publishItem(request: PublishItemRequest): Mono<Void> {
+        val builder = UriComponentsBuilder.fromHttpUrl("https://tqgfreeway.ju.taobao.com/tg/ItemPublishError")
+        builder.queryParam("juid", request.juId)
+        builder.queryParam("_tb_token_", request.tbToken)
+        return webClient.get()
+            .uri(builder.build().encode().toUri())
+            .cookie("_tb_token_", request.tbToken)
+            .cookie("cookie2", request.cookie2)
+            .cookie("sg", request.sg)
+            .exchange()
+            .flatMap { response ->
+                if (response.statusCode().is3xxRedirection) {
+                    val location = response.headers().header("Location")[0]
+                    if (location.contains("seller_error")) {
+                        webClient
+                            .get()
+                            .uri(URI.create(location))
+                            .cookie("_tb_token_", request.tbToken)
+                            .cookie("cookie2", request.cookie2)
+                            .cookie("sg", request.sg)
+                            .exchange().flatMap { r ->
+                            r.bodyToMono<String>().map { body ->
+                                val doc = Jsoup.parse(body)
+                                val message = doc.select(".state-notice").text()
+                                throw IllegalArgumentException(message)
+                            }
+                        }
+                    } else {
+                        Mono.empty()
+                    }
+                } else if (response.statusCode().is2xxSuccessful) {
+                    response.bodyToMono<String>().map { body ->
+                        val doc = Jsoup.parse(body)
+                        val rows = doc.select(".exception_main_info").select("tbody").select("tr")
+                        val errors = rows.map { row -> row.select("td").first().text() }
+                        throw IllegalArgumentException(errors.joinToString(", "))
+                    }
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            .then()
+    }
 }

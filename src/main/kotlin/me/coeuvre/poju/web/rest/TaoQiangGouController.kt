@@ -1,6 +1,7 @@
 package me.coeuvre.poju.web.rest
 
 import me.coeuvre.poju.service.ExportActivityItemsRequest
+import me.coeuvre.poju.service.PublishItemsRequest
 import me.coeuvre.poju.service.TaoQiangGouService
 import me.coeuvre.poju.service.UpdateItemApplyFormDetail
 import me.coeuvre.poju.util.Utils
@@ -42,7 +43,7 @@ class TaoQiangGouController(@Autowired val taoQiangGouService: TaoQiangGouServic
                         zipImagesMap = zipContentMap
                     )).map { errorWorkbook: XSSFWorkbook? ->
                         if (errorWorkbook != null) {
-                            Utils.createExcelResponseEntity(errorWorkbook, "TQQ_ErrorItems")
+                            Utils.createExcelResponseEntity(errorWorkbook, "TQG_ErrorItems")
                         } else {
                             ResponseEntity.ok().body(ByteArray(0))
                         }
@@ -51,4 +52,16 @@ class TaoQiangGouController(@Autowired val taoQiangGouService: TaoQiangGouServic
         }
     }
 
+    @PostMapping("/api/tqg/PublishItems")
+    fun publishItems(@RequestBody requestMono: Mono<PublishItemsRequest>): Mono<ResponseEntity<ByteArray>> {
+        return requestMono.flatMap { request ->
+            taoQiangGouService.publishItems(request)
+        }.map { errorWorkbook: XSSFWorkbook? ->
+            if (errorWorkbook != null) {
+                Utils.createExcelResponseEntity(errorWorkbook, "TQG_PublishItemsError")
+            } else {
+                ResponseEntity.ok().body(ByteArray(0))
+            }
+        }
+    }
 }

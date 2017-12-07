@@ -19,7 +19,7 @@ class TaoQingCangClientTest {
                 tbToken = "fdea5e59b8578",
                 cookie2 = "760e6f0cf1b29c3fc128b941260f9d3b",
                 sg = "%E5%BA%9708",
-                activityEnterId = 27847640,
+                activityEnterId = "27847640",
                 itemStatusCode = "0",
                 actionStatus = "0",
                 currentPage = 1,

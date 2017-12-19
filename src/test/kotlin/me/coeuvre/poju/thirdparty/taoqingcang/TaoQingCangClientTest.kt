@@ -36,7 +36,7 @@ class TaoQingCangClientTest {
                 tbToken = "fdea5e59b8578",
                 cookie2 = "760e6f0cf1b29c3fc128b941260f9d3b",
                 sg = "%E5%BA%9708",
-                juId = 10000058474400
+                juId = "10000058474400"
         ))
         itemApplyFormDetailMono.map { response ->
             println(response)

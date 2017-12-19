@@ -1,6 +1,7 @@
 package me.coeuvre.poju.web.rest
 
 import me.coeuvre.poju.service.ExportActivityItemsRequest
+import me.coeuvre.poju.service.PublishItemsRequest
 import me.coeuvre.poju.service.TaoQingCangService
 import me.coeuvre.poju.service.UpdateItemApplyFormDetail
 import me.coeuvre.poju.thirdparty.taoqingcang.UploadItemMainPicRequest
@@ -15,15 +16,14 @@ import org.springframework.http.codec.multipart.Part
 import org.springframework.web.bind.annotation.*
 import reactor.core.publisher.Mono
 import java.io.*
-import java.util.zip.ZipInputStream
 
 @RestController
-class TaoQingCangController(@Autowired val service: TaoQingCangService) {
+class TaoQingCangController(@Autowired val taoQingCangService: TaoQingCangService) {
 
     @PostMapping("/api/tqc/ExportItemApplyFormDetails")
     fun exportActivityItems(@RequestBody request: Mono<ExportActivityItemsRequest>): Mono<ResponseEntity<ByteArray>> {
         return request.flatMap { r ->
-            service.exportItemApplyFormDetails(r).map { Utils.createExcelResponseEntity(it, "TQC_ActivityItems") }
+            taoQingCangService.exportItemApplyFormDetails(r).map { Utils.createExcelResponseEntity(it, "TQC_ActivityItems") }
         }
     }
 
@@ -47,7 +47,7 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
                     }
                 }
                 .flatMap { (workbook, zipContentMap) ->
-                    service.updateItemApplyFormDetail(UpdateItemApplyFormDetail(
+                    taoQingCangService.updateItemApplyFormDetail(UpdateItemApplyFormDetail(
                         tbToken = model.tbToken,
                         cookie2 = model.cookie2,
                         sg = model.sg,
@@ -68,8 +68,8 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
         val tbToken: String,
         val cookie2: String,
         val sg: String,
-        val platformId: Long,
-        val itemId: Long,
+        val platformId: String,
+        val itemId: String,
         val pic: Part
     )
 
@@ -77,7 +77,7 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
     fun uploadItemMainPic(@ModelAttribute modelMono: Mono<UploadItemMainPicModel>): Mono<String> =
         modelMono.flatMap { model ->
             model.pic.getContentAsByteArray().flatMap { byteArray ->
-                service.taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
+                taoQingCangService.taoQingCangClient.uploadItemMainPic(UploadItemMainPicRequest(
                     tbToken = model.tbToken,
                     cookie2 = model.cookie2,
                     sg = model.sg,
@@ -88,4 +88,17 @@ class TaoQingCangController(@Autowired val service: TaoQingCangService) {
             }
         }
 
+
+    @PostMapping("/api/tqc/PublishItems")
+    fun publishItems(@RequestBody requestMono: Mono<PublishItemsRequest>): Mono<ResponseEntity<ByteArray>> {
+        return requestMono.flatMap { request ->
+            taoQingCangService.publishItems(request)
+        }.map { errorWorkbook: XSSFWorkbook? ->
+            if (errorWorkbook != null) {
+                Utils.createExcelResponseEntity(errorWorkbook, "TQC_PublishItemsError")
+            } else {
+                ResponseEntity.ok().body(ByteArray(0))
+            }
+        }
+    }
 }
